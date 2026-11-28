@@ -2777,6 +2777,14 @@ from the `sidx`; AAC's packets it places 1024 frames apart whatever their
 durations say, since that is what each decodes to, and a seek decodes one
 packet before the one it lands in, whose sound overlaps it.
 
+WAV is written as well as read (`WriteWAV`): 16-bit PCM in the sound's own
+rate and channels, a canonical 44-byte header of RIFF, `fmt ` and `data`
+chunks, and the samples clipped to -1 and 1 rather than wrapped, which a sound
+mixed past full scale would otherwise do, and which clicks. Nothing of the
+mixer or the output is needed for it, so a tool that generates effects has no
+app to run: an hour at 48 kHz in stereo is 691 MB, which is why `WriteWAV`
+takes an `io.Writer` and converts 8 KB at a time.
+
 ## Watching files (`watch.go`)
 
 `WatchFiles` keeps what it saw of its directory (`watch_scan.go`): for

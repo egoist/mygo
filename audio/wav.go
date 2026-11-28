@@ -147,6 +147,110 @@ func (d *wavDecoder) Read(dst []float32) (int, error) {
 	return n * d.channels, nil
 }
 
+// wavHeaderSize is the size of the header of an encoded WAV: the RIFF, fmt
+// and data chunks, no others.
+const wavHeaderSize = 44
+
+// WriteWAV writes s to w as a WAV file of 16-bit PCM, which every system
+// plays, in the sound's channels and sample rate. Samples beyond -1 and 1,
+// which a sound mixed past full scale has, are clipped rather than wrapped:
+// a wrap turns the top of a loud sound into a click. A sample that is not a
+// number is silence:
+//
+//	f, err := os.Create("effect.wav")
+//	if err != nil {
+//		return err
+//	}
+//	defer f.Close()
+//	if err := s.WriteWAV(f); err != nil {
+//		return err
+//	}
+//
+// A sound that DecodeSound read writes to a file whose samples come back
+// within a step of 16 bits, 1/32768, of what was decoded, which full scale
+// positive spends on 32767 rather than 32768. Samples past a whole frame,
+// which NewSound and decoding never make, are left out, as they are left out
+// of Duration. A sound of more than six hours at 44.1 kHz runs past what the
+// RIFF header's sizes can say, and is an error.
+func (s *Sound) WriteWAV(w io.Writer) error {
+	frames := len(s.samples) / s.channels
+	data, ok := wavData(frames, s.channels)
+	if !ok {
+		return errors.New("audio: a WAV file holds less than 4 GB of samples")
+	}
+	if err := writeAll(w, s.wavHeader(data)); err != nil {
+		return err
+	}
+	samples := s.samples[:frames*s.channels]
+	const chunk = 4096 // samples, 8 KB
+	buf := make([]byte, 0, chunk*2)
+	for i := 0; i < len(samples); i += chunk {
+		buf = buf[:0]
+		for _, v := range samples[i:min(i+chunk, len(samples))] {
+			buf = binary.LittleEndian.AppendUint16(buf, pcm16(v))
+		}
+		if err := writeAll(w, buf); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wavData returns the size of frames of channels 16-bit samples, and
+// whether a WAV file holds them: the RIFF header's sizes are uint32.
+func wavData(frames, channels int) (uint32, bool) {
+	n := uint64(frames) * uint64(channels) * 2
+	if n > math.MaxUint32-(wavHeaderSize-8) {
+		return 0, false
+	}
+	return uint32(n), true
+}
+
+// wavHeader returns the header of a WAV file of data bytes of 16-bit PCM.
+func (s *Sound) wavHeader(data uint32) []byte {
+	h := make([]byte, wavHeaderSize)
+	le := binary.LittleEndian
+	copy(h, "RIFF")
+	le.PutUint32(h[4:], wavHeaderSize-8+data)
+	copy(h[8:], "WAVE")
+	copy(h[12:], "fmt ")
+	le.PutUint32(h[16:], 16)                          // the fmt chunk's size
+	le.PutUint16(h[20:], 1)                           // PCM
+	le.PutUint16(h[22:], uint16(s.channels))          // channels
+	le.PutUint32(h[24:], uint32(s.rate))              // samples a second
+	le.PutUint32(h[28:], uint32(s.rate*s.channels*2)) // bytes a second
+	le.PutUint16(h[32:], uint16(s.channels*2))        // bytes a frame
+	le.PutUint16(h[34:], 16)                          // bits a sample
+	copy(h[36:], "data")
+	le.PutUint32(h[40:], data) // the data chunk's size
+	return h
+}
+
+// pcm16 returns v as a 16-bit sample: -1 is -32768, and 1 is 32767, a step
+// short of 32768, which the decoder reads as -1.
+func pcm16(v float32) uint16 {
+	if v != v { // not a number
+		return 0
+	}
+	n := math.Round(float64(min(max(v, -1), 1)) * (1 << 15))
+	return uint16(int16(min(n, 1<<15-1)))
+}
+
+// writeAll writes b to w.
+func writeAll(w io.Writer, b []byte) error {
+	for len(b) > 0 {
+		n, err := w.Write(b)
+		b = b[n:]
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+	}
+	return nil
+}
+
 func (d *wavDecoder) SetPosition(frame int64) error {
 	if frame < 0 || d.length >= 0 && frame > d.length {
 		return errors.New("audio: seek out of range")
