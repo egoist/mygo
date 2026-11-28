@@ -6,6 +6,7 @@ package mp3
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 
 	"github.com/egoist/mygo/audio"
@@ -22,7 +23,8 @@ func init() {
 }
 
 // NewDecoder returns a decoder of the MP3 file r, which decodes to stereo.
-func NewDecoder(r io.ReadSeeker) (audio.Decoder, error) {
+func NewDecoder(r io.ReadSeeker) (_ audio.Decoder, err error) {
+	defer bad(&err)
 	d, err := gomp3.NewDecoder(r)
 	if err != nil {
 		return nil, err
@@ -54,7 +56,7 @@ func (d *decoder) Read(dst []float32) (int, error) {
 		d.buf = make([]byte, n)
 	}
 	b := d.buf[:n]
-	got, err := io.ReadFull(d.d, b)
+	got, err := d.read(b)
 	got -= got % frameBytes
 	for i := 0; i < got/2; i++ {
 		dst[i] = float32(int16(binary.LittleEndian.Uint16(b[2*i:]))) / (1 << 15)
@@ -68,7 +70,25 @@ func (d *decoder) Read(dst []float32) (int, error) {
 	return 0, err
 }
 
-func (d *decoder) SetPosition(frame int64) error {
-	_, err := d.d.Seek(frame*frameBytes, io.SeekStart)
+func (d *decoder) SetPosition(frame int64) (err error) {
+	defer bad(&err)
+	_, err = d.d.Seek(frame*frameBytes, io.SeekStart)
 	return err
+}
+
+// read fills b, as io.ReadFull does.
+func (d *decoder) read(b []byte) (n int, err error) {
+	defer bad(&err)
+	return io.ReadFull(d.d, b)
+}
+
+// errBadFrame is what a damaged file reads as: go-mp3 may panic on bytes
+// that only look like a frame.
+var errBadFrame = errors.New("mp3: bad frame")
+
+// bad turns a panic of go-mp3 into errBadFrame, in err.
+func bad(err *error) {
+	if recover() != nil {
+		*err = errBadFrame
+	}
 }
