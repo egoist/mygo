@@ -871,6 +871,16 @@ func (w *window) SetMaximumSize(s platform.Size) {
 	msgSetSize(w.win, sel("setMaxSize:"), max)
 }
 
+func (w *window) SetAspectRatio(ratio float64) {
+	if ratio > 0 {
+		msgSetSize(w.win, sel("setContentAspectRatio:"), NSSize{ratio, 1})
+		return
+	}
+	// AppKit derives resize increments from the aspect ratio; clearing it
+	// alone leaves them behind, as Electron's reset shows.
+	msgSetSize(w.win, sel("setResizeIncrements:"), NSSize{1, 1})
+}
+
 func (w *window) setStyle(bit uint, on bool) {
 	mask := uint(send(w.win, "styleMask"))
 	if on {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -597,6 +598,24 @@ func TestWindowExtras(t *testing.T) {
 	w.SetAutoHideMenuBar(true)
 	if !onMainValue(func() bool { return fw.Flashing && !fw.SkipsTaskbar && fw.OnAllWorkspaces && fw.AutoHidesMenu }) {
 		t.Error("window extras not applied")
+	}
+	w.SetAspectRatio(16.0 / 9.0)
+	if v := onMainValue(func() float64 { return fw.AspectRatio }); v != 16.0/9.0 {
+		t.Errorf("SetAspectRatio = %v, want %v", v, 16.0/9.0)
+	}
+	w.SetAspectRatio(0)
+	if v := onMainValue(func() float64 { return fw.AspectRatio }); v != 0 {
+		t.Errorf("SetAspectRatio(0) = %v, want 0", v)
+	}
+	for _, bad := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("SetAspectRatio(%v) did not panic", bad)
+				}
+			}()
+			w.SetAspectRatio(bad)
+		}()
 	}
 	if err := w.SetIcon([]byte("not a png")); err == nil {
 		t.Error("SetIcon accepted a bad image")

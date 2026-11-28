@@ -273,7 +273,8 @@ Other properties:
 
 - `SetTitle`, `SetResizable`, `SetMovable`, `SetMinimizable`,
   `SetMaximizable`, `SetClosable`, `SetMinimumSize`, `SetMaximumSize`,
-  `SetAlwaysOnTop`, `SetOpacity`, `SetHasShadow`, `SetBackgroundColor` and
+  `SetAspectRatio`, `SetAlwaysOnTop`, `SetOpacity`, `SetHasShadow`,
+  `SetBackgroundColor` and
   `SetVibrancy` change what the options set. On Windows, `SetVibrancy`
   changes the material of a window created with one, and shows none in
   other windows. On Linux, a window keeps the shadow it was created with
@@ -319,6 +320,11 @@ Other properties:
 - `FlashFrame(true)` asks for attention: the taskbar button flashes
   (Windows), the window is marked urgent (Linux) or the Dock icon bounces
   (macOS).
+- `SetAspectRatio(16.0 / 9.0)` keeps the content at a width/height ratio
+  while the user resizes the window, as a video player keeps its picture's
+  shape; `SetAspectRatio(0)` frees it again. `SetBounds`, maximizing and
+  full screen are not constrained. On Linux the window manager honors the
+  ratio on X11; a Wayland compositor may not.
 - `SetThumbBar` puts a thumbnail toolbar under the window's live preview
   in the taskbar (Windows): a row of up to 7 small buttons, each with a
   PNG icon, a tooltip and a state:

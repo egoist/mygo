@@ -126,6 +126,7 @@ type window struct {
 	x, y, w, hgt      int32
 	minW, minH        int32
 	maxW, maxH        int32
+	aspect            float64
 
 	// activationResize holds the latest bounds asked for while a window
 	// drawing with GL on Wayland is not focused, and activationPrevious the
@@ -426,6 +427,10 @@ func (w *window) applyGeometry() {
 		}
 		mask |= 1 << 2 // GDK_HINT_MAX_SIZE
 	}
+	if w.aspect > 0 {
+		g.MinAspect, g.MaxAspect = w.aspect, w.aspect
+		mask |= 1 << 4 // GDK_HINT_ASPECT
+	}
 	gtkWindowSetGeometryHints(w.win, 0, &g, mask)
 }
 
@@ -669,6 +674,11 @@ func (w *window) SetMinimumSize(s platform.Size) {
 
 func (w *window) SetMaximumSize(s platform.Size) {
 	w.maxW, w.maxH = int32(s.Width), int32(s.Height)
+	w.applyGeometry()
+}
+
+func (w *window) SetAspectRatio(ratio float64) {
+	w.aspect = ratio
 	w.applyGeometry()
 }
 
