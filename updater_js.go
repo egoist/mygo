@@ -67,3 +67,9 @@ func (up *Update) Install(ctx context.Context, progress func(downloaded, total i
 func relaunchNow() {}
 
 func cleanUpdateLeftovers() {}
+
+// RolledBack returns "": the browser does not update apps.
+func (u *UpdaterModule) RolledBack() string { return "" }
+
+// ConfirmStart does nothing: the browser does not update apps.
+func (u *UpdaterModule) ConfirmStart() {}
