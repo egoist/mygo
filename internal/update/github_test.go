@@ -43,6 +43,15 @@ func TestResolveFeed(t *testing.T) {
 		t.Errorf("ResolveFeed = %s, %v, want %s", got, err, want)
 	}
 
+	// A longer prefix is another product's.
+	pages = [][]string{{
+		rel("desktop-v-cli-2.0.0", false, false),
+		rel("desktop-v1.1.0", false, false),
+	}}
+	if got, err := ResolveFeed(context.Background(), feed, get); err != nil || !strings.Contains(got, "/desktop-v1.1.0/") {
+		t.Errorf("beside a longer prefix, ResolveFeed = %s, %v", got, err)
+	}
+
 	// A full page leads to the next.
 	var full []string
 	for i := range releasesPerPage {

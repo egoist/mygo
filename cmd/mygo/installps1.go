@@ -171,7 +171,7 @@ function Get-LatestTag {
 		# ForEach-Object enumerates.
 		$list = @(Invoke-RestMethod -UseBasicParsing -Uri "$api&page=$page" | ForEach-Object { $_ })
 		foreach ($r in $list) {
-			if (-not $r.draft -and -not $r.prerelease -and $r.tag_name.StartsWith($tagPrefix)) { return $r.tag_name }
+			if (-not $r.draft -and -not $r.prerelease -and $r.tag_name.StartsWith($tagPrefix) -and $r.tag_name.Substring($tagPrefix.Length) -match '^[0-9]') { return $r.tag_name }
 		}
 		if ($list.Count -lt 100) { break }
 	}

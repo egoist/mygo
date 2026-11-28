@@ -90,7 +90,7 @@ func latestTagged(ctx context.Context, get Getter, repo, prefix string) (string,
 			return "", err
 		}
 		for _, r := range releases {
-			if !r.Draft && !r.Prerelease && strings.HasPrefix(r.TagName, prefix) {
+			if _, ok := tagVersion(r.TagName, prefix); ok && !r.Draft && !r.Prerelease {
 				return r.TagName, nil
 			}
 		}
@@ -164,8 +164,8 @@ func highestTagged(ctx context.Context, get Getter, repo, prefix string) (string
 		}
 		stable := false
 		for _, r := range releases {
-			v, ok := strings.CutPrefix(r.TagName, prefix)
-			if r.Draft || !ok || v == "" || v[0] < '0' || v[0] > '9' {
+			v, ok := tagVersion(r.TagName, prefix)
+			if r.Draft || !ok {
 				continue
 			}
 			stable = stable || !r.Prerelease
@@ -181,6 +181,16 @@ func highestTagged(ctx context.Context, get Getter, repo, prefix string) (string
 		return "", fmt.Errorf("%w in %s tagged %s", ErrNotPublished, repo, prefix)
 	}
 	return best, nil
+}
+
+// tagVersion returns the version of a tag of prefix and a version. A tag of
+// a longer prefix, such as app-cli-1.2.0 for app-, has none.
+func tagVersion(tag, prefix string) (version string, ok bool) {
+	v, ok := strings.CutPrefix(tag, prefix)
+	if !ok || v == "" || v[0] < '0' || v[0] > '9' {
+		return "", false
+	}
+	return v, true
 }
 
 type release struct {
