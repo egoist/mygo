@@ -1156,6 +1156,13 @@ func TestThumbBarLive(hwnd uintptr) bool {
 	return w != nil && w.thumb.live
 }
 
+// TestBadgeShown reports whether the shell has the app's badge as the
+// overlay of the window's taskbar button. Call on the main thread.
+func TestBadgeShown(hwnd uintptr) bool {
+	w := theBackend.windows[hwnd]
+	return w != nil && w.badgeShown
+}
+
 // TestThumbButtonClicked posts the WM_COMMAND the shell sends when the
 // user clicks a thumbnail toolbar button, with the button's id.
 func TestThumbButtonClicked(hwnd uintptr, id int) {

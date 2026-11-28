@@ -703,7 +703,7 @@ func (a *Application) ClearBrowsingData() error {
 }
 
 // Dock controls the application's Dock icon (macOS). Its methods do
-// nothing on other platforms.
+// nothing on other platforms, but SetBadge.
 type Dock struct {
 	mu   sync.Mutex
 	menu *Menu
@@ -731,9 +731,14 @@ func (d *Dock) Menu() *Menu {
 	return d.menu
 }
 
-// SetBadge shows text on the Dock icon; "" clears it.
+// SetBadge shows text on the Dock icon; "" clears it. Windows shows it on
+// the taskbar buttons of the app's windows, a number past 99 as 99+, and
+// Linux on the launcher entry where the dock supports it.
 func (d *Dock) SetBadge(text string) {
 	needsApp("App.Dock.SetBadge")
+	if text != "" {
+		linkBadges()
+	}
 	onMain(func() { backend().App().SetBadge(text) })
 }
 

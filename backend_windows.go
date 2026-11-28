@@ -20,3 +20,5 @@ func linkMenuIcons() { win.LinkMenuIcons() }
 func linkContextMenus() { win.LinkContextMenus() }
 
 func linkThumbBars() { win.LinkThumbBars() }
+
+func linkBadges() { win.LinkBadges() }

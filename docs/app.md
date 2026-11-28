@@ -338,8 +338,9 @@ whatever the app is written in.
 
 ## The Dock and the taskbar
 
-- `App.SetBadgeCount(n)` shows a count on the app's icon: the Dock (macOS)
-  or the launcher entry (Linux docks that support it); zero clears it.
+- `App.SetBadgeCount(n)` shows a count on the app's icon: the Dock (macOS),
+  the taskbar buttons of its windows (Windows, past 99 as 99+), or the
+  launcher entry (Linux docks that support it); zero clears it.
 - `App.Dock` controls the Dock icon on macOS: `SetBadge` shows any text,
   `Bounce` asks for attention, `SetIcon` replaces the icon, `SetMenu` adds
   items to its menu (see [the Dock menu](menus.md#the-dock-menu)), and
