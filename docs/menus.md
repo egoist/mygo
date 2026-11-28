@@ -585,4 +585,6 @@ Keys:
   `MediaNextTrack`, `MediaPreviousTrack`, `MediaStop`, `PrintScreen`,
   `CapsLock`, `NumLock`, `ScrollLock`.
 
-The same syntax registers [global shortcuts](native.md#global-shortcuts).
+The same syntax registers [global shortcuts](native.md#global-shortcuts),
+and [`ui.ParseShortcut`](ui/input.md#shortcuts) reads it for native UI's
+shortcuts.

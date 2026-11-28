@@ -375,6 +375,25 @@ A button doing what a shortcut does tells screen readers its key with
 [`KeyShortcuts`](accessibility.md#keyboard-shortcuts), as
 `ui.Button(c, "Save").KeyShortcuts(ui.Cmd, ui.KeyS)`.
 
+A shortcut read from a file or a setting is written as a menu's
+[accelerator](../menus.md#accelerators): `ui.ParseShortcut` reads
+`"CmdOrCtrl+Shift+K"` into the modifiers and key that `c.Shortcut` takes,
+with CmdOrCtrl as `ui.Cmd`, and `ui.FormatShortcut` writes them back, as
+for a shortcut the user chose. What it writes is this platform's: `ui.Cmd`
+is `Super+` on macOS and `Ctrl+` elsewhere, so a file shared between
+systems writes `CmdOrCtrl` instead. `ui.ShortcutLabel` writes them as the
+platform's menus show them, "⇧⌘K" on macOS and "Ctrl+Shift+K"
+elsewhere, for a hint or a list of shortcuts. A key with no `Key`, as
+F13, Num0 or Plus, is an error.
+
+```go
+mods, key, err := ui.ParseShortcut(app.settings.PaletteKey)
+if err == nil && c.Shortcut(mods, key) {
+	app.palette.Open()
+}
+ui.Text(c, ui.ShortcutLabel(mods, key))
+```
+
 A key held down repeats, and each repeat comes as a press again, so an
 action that steps runs while the key is held. `c.ShortcutRepeated()` tells
 whether the key that the last shortcut to report one took came as such a

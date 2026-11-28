@@ -168,6 +168,35 @@ if ui.Button(c, "Format").Clicked() {
 }
 ```
 
+A keymap the app reads from a file writes keys as
+[`ui.ParseShortcut`](input.md#shortcuts) reads them, a chord's two
+separated by a space, as VS Code's `keybindings.json`, and commands by
+their names; it skips an entry of more keys than a `Binding` holds:
+
+```go
+next:
+for keys, name := range keymap { // "CmdOrCtrl+K CmdOrCtrl+U": "uppercase"
+	command, ok := editor.CommandNamed(name)
+	fields := strings.Fields(keys)
+	if !ok || len(fields) > 2 {
+		continue
+	}
+	b := editor.Binding{Command: command}
+	for i, s := range fields {
+		mods, key, err := ui.ParseShortcut(s)
+		if err != nil {
+			continue next
+		}
+		if i == 0 {
+			b.Mods, b.Key = mods, key
+		} else {
+			b.ThenMods, b.ThenKey = mods, key
+		}
+	}
+	app.code.Bindings = append(app.code.Bindings, b)
+}
+```
+
 `Selections`, `SetSelections`, `Select`, `Cursor` and `CursorPos` read
 and set the carets and selections, `Insert` types at each of them, `GoTo`
 moves the caret to a position and `ScrollTo` shows a line. `Find` opens

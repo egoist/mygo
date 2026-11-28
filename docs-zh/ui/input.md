@@ -332,6 +332,23 @@ if c.Shortcut(ui.Cmd, ui.KeyS) {
 [`KeyShortcuts`](accessibility.md#键盘快捷键) 告诉屏幕阅读器它的键，如
 `ui.Button(c, "Save").KeyShortcuts(ui.Cmd, ui.KeyS)`。
 
+从文件或设置读取的快捷键，按菜单的[快捷键](../menus.md#快捷键)写法书写：
+`ui.ParseShortcut` 把 `"CmdOrCtrl+Shift+K"` 读成 `c.Shortcut` 接受的修饰键和键，
+CmdOrCtrl 即 `ui.Cmd`；`ui.FormatShortcut` 把它们写回去，例如保存用户选的快捷键。
+它写出的是当前平台的写法：`ui.Cmd` 在 macOS 上写作 `Super+`，其他地方写作 `Ctrl+`，
+所以在不同系统间共用的文件应写 `CmdOrCtrl`。
+`ui.ShortcutLabel` 按平台菜单的显示方式写出它们，macOS 上是 “⇧⌘K”，其他地方是
+“Ctrl+Shift+K”，用于提示或快捷键列表。没有对应 `Key` 的键，如 F13、Num0 或
+Plus，会返回错误。
+
+```go
+mods, key, err := ui.ParseShortcut(app.settings.PaletteKey)
+if err == nil && c.Shortcut(mods, key) {
+	app.palette.Open()
+}
+ui.Text(c, ui.ShortcutLabel(mods, key))
+```
+
 按住的键会重复，每次重复都再次作为一次按下到来，所以步进的动作在按住键时
 持续运行。`c.ShortcutRepeated()` 说明最后报告按键的那个快捷键所接受的键是否
 来自这样的一次重复，如同 Web 的 `KeyboardEvent.repeat`，无论那是哪个快捷键

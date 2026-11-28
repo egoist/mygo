@@ -319,4 +319,4 @@ mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
 - `Num0` 到 `Num9`、`NumDec`、`NumAdd`、`NumSub`、`NumMult`、`NumDiv`（数字键盘）；
 - `VolumeUp`、`VolumeDown`、`VolumeMute`、`MediaPlayPause`、`MediaNextTrack`、`MediaPreviousTrack`、`MediaStop`、`PrintScreen`、`CapsLock`、`NumLock`、`ScrollLock`。
 
-同样的语法用于注册[全局快捷键](native.md#全局快捷键)。
+同样的语法用于注册[全局快捷键](native.md#全局快捷键)，[`ui.ParseShortcut`](ui/input.md#快捷键) 也用它读取原生 UI 的快捷键。
