@@ -181,7 +181,7 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 // paintMarker paints the marker of an item of a list: its bullet, its
 // number, or its check box.
 func (v *view) paintMarker(p *ui.Painter, i int, st ParagraphStyle, pv *paraView, x, y float32) {
-	if st.List == NoList {
+	if st.List == NoList || v.opts.NoMarker != nil && v.opts.NoMarker(i, st) {
 		return
 	}
 	look := &v.look
