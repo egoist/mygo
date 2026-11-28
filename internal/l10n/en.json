@@ -249,6 +249,39 @@
   "@noNewlineAtEnd": {
     "description": "Marks the last line of a text in a diff viewer when the text does not end with a newline, as git diff's \"\\ No newline at end of file\" line."
   },
+  "invisibleCharacter": "The character {code} is invisible.",
+  "@invisibleCharacter": {
+    "description": "Shows in the hover of a code editor over an invisible character, as a zero-width space, which the editor outlines. code is the character's code point, as U+200B.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "bidiCharacter": "The character {code} is invisible and can reorder the text around it.",
+  "@bidiCharacter": {
+    "description": "Shows in the hover of a code editor over a control of bidirectional text, as U+202E, which can make code read otherwise than it runs. code is the character's code point.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "ambiguousCharacter": "The character {code} “{character}” can be confused with “{ascii}”.",
+  "@ambiguousCharacter": {
+    "description": "Shows in the hover of a code editor over a character that looks like an ASCII letter or digit, as the Cyrillic а of pаypal. code is its code point, as U+0430, character the character, and ascii the ASCII letter or digit it looks like.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      },
+      "character": {
+        "type": "String"
+      },
+      "ascii": {
+        "type": "String"
+      }
+    }
+  },
   "revert": "Revert",
   "@revert": {
     "description": "An action of a diff viewer on a change."

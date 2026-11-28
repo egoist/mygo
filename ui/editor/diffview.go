@@ -67,6 +67,10 @@ type DiffState struct {
 	// bars stay with the pointer away, or are taken away with their room.
 	KeepScrollbars bool
 	NoScrollbars   bool
+	// NoInvisibleCharacters and AmbiguousCharacters are those of State,
+	// for both sides.
+	NoInvisibleCharacters bool
+	AmbiguousCharacters   bool
 	// Font, LineHeight, TabSize and Theme are those of State.
 	Font       ui.Font
 	LineHeight float32
@@ -603,6 +607,7 @@ func (d *DiffState) sideOptions(old bool) options {
 		theme: d.Theme, bindings: d.Bindings, fitContent: d.FitContent, minDigits: digits,
 		scrollPastEnd:  d.ScrollPastEnd && !d.FitContent,
 		keepScrollbars: d.KeepScrollbars, hideScrollbars: d.NoScrollbars,
+		noInvisibles: d.NoInvisibleCharacters, ambiguous: d.AmbiguousCharacters,
 		renderFindBar: d.RenderFindBar, renderGoToLine: d.RenderGoToLine,
 	}
 	o.scrollMargin = defaultScrollMargin
@@ -649,6 +654,7 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 		d.oldView.setBuffer(d.Old)
 		d.oldView.sync(nil)
 		o := opts(false)
+		d.oldView.setUnicodeMarks(o.unicodeMarks())
 		o.decor = &d.sides[1]
 		if d.Indicators == DiffClassic {
 			o.signs = true
@@ -923,6 +929,7 @@ func (d *DiffState) fit() {
 		d.oldView.sys = ed.view.sys
 		d.oldView.setStyle(ed.view.font, ed.o.lineHeight, max(1, ed.view.scale), ed.tabSize())
 		d.oldView.setWrap(ed.view.wrap, ed.view.wrapWidth)
+		d.oldView.setUnicodeMarks(ed.o.unicodeMarks())
 	}
 	layout := func() {
 		d.prepare()

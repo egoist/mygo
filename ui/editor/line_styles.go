@@ -138,6 +138,7 @@ func (v *view) styledView(s LineStyle) *view {
 	child.setStyle(f, height, v.scale, v.tabSize)
 	child.setTheme(v.theme)
 	child.setWrap(v.wrap, v.wrapWidth)
+	child.setUnicodeMarks(v.unicodeMarks)
 	return child
 }
 

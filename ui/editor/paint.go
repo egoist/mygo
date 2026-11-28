@@ -528,6 +528,7 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 		}
 		v.paintRow(p, l, row, ox, y, &f.colors, link)
 		ed.paintWhitespace(p, f, l, row, ox, y)
+		f.rects = v.paintUnicodeMarks(p, f.rects, l, row, ox, y, ct.Warning)
 		ed.paintMarked(p, f, l, row, ox, y)
 		// Diagnostics under the text.
 		for _, d := range ed.diags {

@@ -818,6 +818,64 @@ func (msgs Messages) NoNewlineAtEnd() string {
 	return Catalog.Format(msgs.locale, "noNewlineAtEnd", nil)
 }
 
+// InvisibleCharacter says "The character {code} is invisible."
+// in the language the app shows.
+//
+// Shows in the hover of a code editor over an invisible character, as a
+// zero-width space, which the editor outlines. code is the character's code
+// point, as U+200B.
+func InvisibleCharacter(code string) string { return In(i18n.Locale()).InvisibleCharacter(code) }
+
+// InvisibleCharacter says "The character {code} is invisible."
+// in the language of msgs.
+//
+// Shows in the hover of a code editor over an invisible character, as a
+// zero-width space, which the editor outlines. code is the character's code
+// point, as U+200B.
+func (msgs Messages) InvisibleCharacter(code string) string {
+	return Catalog.Format(msgs.locale, "invisibleCharacter", map[string]any{"code": code})
+}
+
+// BidiCharacter says "The character {code} is invisible and can reorder the text around it."
+// in the language the app shows.
+//
+// Shows in the hover of a code editor over a control of bidirectional text,
+// as U+202E, which can make code read otherwise than it runs. code is the
+// character's code point.
+func BidiCharacter(code string) string { return In(i18n.Locale()).BidiCharacter(code) }
+
+// BidiCharacter says "The character {code} is invisible and can reorder the text around it."
+// in the language of msgs.
+//
+// Shows in the hover of a code editor over a control of bidirectional text,
+// as U+202E, which can make code read otherwise than it runs. code is the
+// character's code point.
+func (msgs Messages) BidiCharacter(code string) string {
+	return Catalog.Format(msgs.locale, "bidiCharacter", map[string]any{"code": code})
+}
+
+// AmbiguousCharacter says "The character {code} “{character}” can be confused with “{ascii}”."
+// in the language the app shows.
+//
+// Shows in the hover of a code editor over a character that looks like an
+// ASCII letter or digit, as the Cyrillic а of pаypal. code is its code
+// point, as U+0430, character the character, and ascii the ASCII letter or
+// digit it looks like.
+func AmbiguousCharacter(code string, character string, ascii string) string {
+	return In(i18n.Locale()).AmbiguousCharacter(code, character, ascii)
+}
+
+// AmbiguousCharacter says "The character {code} “{character}” can be confused with “{ascii}”."
+// in the language of msgs.
+//
+// Shows in the hover of a code editor over a character that looks like an
+// ASCII letter or digit, as the Cyrillic а of pаypal. code is its code
+// point, as U+0430, character the character, and ascii the ASCII letter or
+// digit it looks like.
+func (msgs Messages) AmbiguousCharacter(code string, character string, ascii string) string {
+	return Catalog.Format(msgs.locale, "ambiguousCharacter", map[string]any{"code": code, "character": character, "ascii": ascii})
+}
+
 // Revert says "Revert"
 // in the language the app shows.
 //

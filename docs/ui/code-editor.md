@@ -249,6 +249,30 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
   language's files usually have them when zero (Go's tabs).
 - `Whitespace` shows spaces and tabs as dots and arrows: within selections
   by default, everywhere, at the ends of lines, or nowhere.
+- Invisible characters show as a space in a box of the theme's `Warning`
+  color, and the hover names them, as VS Code's
+  `editor.unicodeHighlight.invisibleCharacters` does: control characters
+  but tab, format characters such as zero-width spaces and the controls of
+  bidirectional text, and the blank characters VS Code lists, as Hangul
+  fillers and variation selectors. A right-to-left override then reorders
+  nothing, and code reads in the order a compiler reads it, which Trojan
+  Source (CVE-2021-42574) hides code from reviewers with. Spaces other
+  than U+0020, as the no-break space U+00A0 and the typographic spaces
+  U+2000 to U+200A, U+202F and U+205F, are outlined where they are; the
+  ideographic space U+3000 of CJK text is not, as in Zed. What shapes or
+  varies the text around it shows as it is: a joiner after an emoji or a
+  letter beyond ASCII, as in Devanagari, a non-joiner after such a
+  letter, as in Persian, Mongolian's selectors after its letters, one
+  variation selector after the character it varies, the tags of a flag's
+  well-formed sequence, and a byte order mark opening the text. Unified
+  diffs show them in deleted lines too. `NoInvisibleCharacters` (of
+  `State` and of `DiffState`) leaves them to the font.
+- `AmbiguousCharacters` outlines the letters and digits that look like an
+  ASCII letter or digit by Unicode's confusables (UTS #39), as in "pаypal"
+  (with a Cyrillic а), and the hover says which one. Only words with an
+  ASCII letter count, ASCII digits not making one: a word all Cyrillic,
+  as "сор" (Russian, all look-alikes of "cop"), has none outlined, while
+  the Turkish dotless ı in "kapı" is.
 - `WrapGuides` draws guides at columns, as 80 and 100; `NoIndentGuides`
   hides those of indentation.
 - `ReadOnly` lets the text be selected and copied, not edited.
@@ -730,8 +754,10 @@ app.code.RenderHover = func(c *ui.Context, panel ui.Element, h *editor.HoverCard
   and give it content. `Font`, `LineHeight` and `Theme` show code as the
   editor does, and a `CompletionKind` has an `Icon` and the `Token` whose
   color tints it.
-- `HoverCard` has the `Diagnostics` of the text hovered, the `Text` the
-  app gave `ShowHover`, and `Content`, which builds what its function
+- `HoverCard` has the `Diagnostics` of the text hovered, with a warning
+  naming the character outlined under the pointer, whose `Source` is
+  "editor", the `Text`
+  the app gave `ShowHover`, and `Content`, which builds what its function
   builds.
 
 ## Accessibility

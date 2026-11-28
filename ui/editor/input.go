@@ -427,7 +427,7 @@ func (ed *editor) pointerMove(ev ui.InputEvent) bool {
 			changed = true
 		}
 	}
-	if off >= 0 && !ed.o.noPointerHover && (ed.o.onHover != nil || len(ed.diags) > 0) && off != h.restOff {
+	if off >= 0 && !ed.o.noPointerHover && off != h.restOff && (ed.o.onHover != nil || len(ed.diags) > 0 || ed.marksUnicode(off)) {
 		h.restOff, h.restAt, h.pending = off, ed.frameNow, true
 		changed = true
 	}

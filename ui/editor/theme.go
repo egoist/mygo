@@ -36,7 +36,9 @@ type Theme struct {
 	ActiveIndentGuide ui.Color
 	WrapGuide         ui.Color
 	Whitespace        ui.Color
-	// Error, Warning, Info and Hint color diagnostics of each severity.
+	// Error, Warning, Info and Hint color diagnostics of each severity;
+	// Warning outlines the characters State.NoInvisibleCharacters and
+	// State.AmbiguousCharacters are of too.
 	Error, Warning, Info, Hint ui.Color
 	// Added, Deleted and Modified are the colors of changes, which tint
 	// the lines of diffs, their gutters and the words changed in them.

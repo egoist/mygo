@@ -374,7 +374,7 @@ func (ed *editor) run(cmd Command) bool {
 		return ed.requestCompletions(true)
 	case ShowHover:
 		ed.hover.byPointer = false
-		return ed.requestHover(ed.primary().head)
+		return ed.requestHover(ed.primary().head, false)
 	case NextHunk, PreviousHunk:
 		return ed.gotoHunk(direction(cmd == PreviousHunk))
 	case RevertHunk:

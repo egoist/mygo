@@ -135,7 +135,7 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 			c.After(wait)
 		} else {
 			h.pending = false
-			ed.requestHover(h.restOff)
+			ed.requestHover(h.restOff, true)
 			h.byPointer = true
 		}
 	}

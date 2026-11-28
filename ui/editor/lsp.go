@@ -385,9 +385,13 @@ func (ed *editor) closeHover() {
 	ed.hover.close()
 }
 
-// requestHover asks the app about the text at off.
-func (ed *editor) requestHover(off int) bool {
+// requestHover asks the app about the text at off, where the pointer
+// rests when byPointer.
+func (ed *editor) requestHover(off int, byPointer bool) bool {
 	ed.hover.diags = ed.diagnosticsAt(off)
+	if d, ok := ed.unicodeNote(off, byPointer); ok {
+		ed.hover.diags = append(ed.hover.diags, d)
+	}
 	if ed.o.onHover != nil && ed.hover.asked != off {
 		ed.hover.asked = off
 		ed.o.onHover(HoverRequest{Offset: off, Version: ed.view.version})

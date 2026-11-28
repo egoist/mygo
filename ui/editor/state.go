@@ -42,6 +42,16 @@ type State struct {
 	// Whitespace says where spaces and tabs show as dots and arrows:
 	// within selections by default.
 	Whitespace Whitespace
+	// Invisible characters, as zero-width spaces and the controls of
+	// bidirectional text that Trojan Source hides code with, show as a
+	// space in a box of the theme's Warning color, which reorders nothing,
+	// spaces other than U+0020 are outlined, and the hover names them;
+	// NoInvisibleCharacters shows them as the text's font does.
+	// AmbiguousCharacters outlines too the letters and digits that look
+	// like ASCII ones, by Unicode's confusables, in words with an ASCII
+	// letter, as in "pаypal" (with a Cyrillic а).
+	NoInvisibleCharacters bool
+	AmbiguousCharacters   bool
 	// WrapGuides draws guides at these columns, as 80 and 100.
 	WrapGuides []int
 	// NoIndentGuides hides the lines that show indentation levels.
@@ -259,6 +269,7 @@ func (st *State) options() options {
 	return options{
 		readOnly: st.ReadOnly, font: st.Font, lineHeight: st.LineHeight, tabSize: st.TabSize, indent: st.Indent,
 		wrap: st.SoftWrap, wrapColumn: st.WrapColumn, lineNumbers: st.LineNumbers, whitespace: st.Whitespace,
+		noInvisibles: st.NoInvisibleCharacters, ambiguous: st.AmbiguousCharacters,
 		wrapGuides: st.WrapGuides, indentGuides: !st.NoIndentGuides,
 		scrollPastEnd: !st.NoScrollPastEnd && !st.FitContent, scrollMargin: scrollMargin,
 		keepScrollbars: st.KeepScrollbars, hideScrollbars: st.NoScrollbars, scrollbar: st.Scrollbar,

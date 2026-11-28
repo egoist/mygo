@@ -583,7 +583,9 @@ type HoverCard struct {
 	ed *editor
 }
 
-// Diagnostics are the diagnostics of the text hovered.
+// Diagnostics are the diagnostics of the text hovered, and a warning
+// naming the character outlined under the pointer, whose Source is
+// "editor".
 func (h *HoverCard) Diagnostics() []Diagnostic { return h.ed.hover.diags }
 
 // Text is the text ShowHover gave, and Content builds what its function
