@@ -189,13 +189,19 @@ func (v *view) joinStep() {
 // attributes, as part of the step its start made.
 func (v *view) commitCompose() {
 	if v.compose != "" {
+		a, z := v.composeRange()
 		s := normalizeNewlines(v.compose)
-		v.compose = ""
-		v.joinStep()
-		v.replace(v.caret, v.caret, s)
+		join := v.composeStep
+		v.clearComposition()
+		if join {
+			v.joinStep()
+		} else {
+			v.record(false)
+		}
+		v.replace(a, z, s)
+		return
 	}
-	v.composeCaret, v.composeSelected = 0, ui.TextInputRange{}
-	v.composing = false
+	v.clearComposition()
 }
 
 // special reports whether a paragraph of style st is more than a body

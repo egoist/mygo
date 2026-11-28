@@ -173,11 +173,28 @@ type view struct {
 	affinity         ui.TextAffinity
 	desiredX         float32
 	hasDesired       bool
-	// An input method's composition, shown at the caret.
+	// An input method's composition and the document range it stands in for
+	// until it is committed.
 	compose         string
 	composeCaret    int
 	composeSelected ui.TextInputRange
 	composing       bool
+	// pendingRange is the range in shown that compose stands in for until
+	// the composition is committed.
+	pendingRange [2]int
+	pendingSet   bool
+	// composed is the text an input method sees, with compose in place of
+	// pendingRange.
+	composed       Text
+	composedActive bool
+	composedRange  [2]int
+	composedLen    int
+	composedParaA  int
+	composedParaZ  int
+	composedDocZ   int
+	// composeStep reports whether the active composition transaction has
+	// already opened an undo step (for example after switching ranges).
+	composeStep bool
 	// mode is how the next edit joins the steps of undo, coalesce whether
 	// typing goes on.
 	mode     editMode
@@ -242,7 +259,6 @@ type paraView struct {
 	nruns        int
 	style        ParagraphStyle
 	compose      string
-	at           int
 	h            float32
 	// space is the space above and below it, in h.
 	space float32
@@ -420,19 +436,49 @@ func (v *view) lockedSync() (change, bool) {
 	var steps []change
 	if d.version != v.version {
 		c, steps, moved = d.since(v.version)
-		if moved && v.version != 0 && len(v.paras) == v.shown.ParagraphCount() {
+		active := v.pendingSet || v.compose != ""
+		holding := false
+		var newA, newZ int
+		var cc change
+		var csteps []change
+		if active && moved && len(steps) > 0 && d.selVersion == v.selVersion {
+			a, z := v.composeRange()
+			newA, newZ, holding = mapPendingRange(a, z, steps)
+			if holding {
+				cc, csteps = mapComposedSteps(a, z, utf8.RuneCountInString(v.compose), steps)
+			}
+		}
+		if !holding && (active || v.composing) {
+			if moved && v.version != 0 {
+				v.clearComposition()
+			} else {
+				v.resetCompositionState()
+			}
+		}
+		if holding && v.version != 0 && v.composedActive && len(v.paras) == v.composed.ParagraphCount() {
+			now := d.text.ReplaceString(newA, newZ, v.compose, d.typingAttributes())
+			v.replacedParas(v.composed, now, cc, csteps)
+			v.shown, v.version = d.text, d.version
+			v.pendingRange = [2]int{newA, newZ}
+			v.setComposed(now, newA, newZ, utf8.RuneCountInString(v.compose))
+		} else if moved && v.version != 0 && !holding && len(v.paras) == v.shown.ParagraphCount() {
 			v.replaced(c, steps, d.text)
+			v.shown, v.version = d.text, d.version
 		} else {
 			if v.anchorText {
 				v.setScroll(v.scroll)
 			}
-			v.shown = d.text
-			v.paras = make([]paraView, d.text.ParagraphCount())
+			v.shown, v.version = d.text, d.version
+			if holding {
+				v.pendingRange = [2]int{newA, newZ}
+				cl := utf8.RuneCountInString(v.compose)
+				v.setComposed(d.text.ReplaceString(newA, newZ, v.compose, d.typingAttributes()), newA, newZ, cl)
+			}
+			v.paras = make([]paraView, v.composedText().ParagraphCount())
 			v.laid = 0
 			v.resetHeights()
 			moved = false
 		}
-		v.shown, v.version = d.text, d.version
 		n := v.shown.Len()
 		if moved {
 			// Through each change in turn, as the document moved its own
@@ -447,22 +493,90 @@ func (v *view) lockedSync() (change, bool) {
 		v.selAnchor, v.caret = min(v.selAnchor, n), min(v.caret, n)
 	}
 	if d.selVersion != v.selVersion {
+		if v.compose != "" || v.pendingSet || v.composing {
+			v.clearComposition()
+		}
 		v.selVersion = d.selVersion
 		v.selAnchor, v.caret = d.anchor, d.caret
 		v.affinity = ui.TextDownstream
 		v.hasDesired = false
-		v.compose, v.composing = "", false
-		v.composeCaret, v.composeSelected = 0, ui.TextInputRange{}
 		v.reveal = true
 	}
 	return c, moved
+}
+
+// mapPendingRange advances a pending composition range [a, z) through steps
+// and reports whether every step leaves that range undisturbed.
+func mapPendingRange(a, z int, steps []change) (int, int, bool) {
+	for _, s := range steps {
+		rem := s.oldEnd - s.start
+		ins := s.newEnd - s.start
+		if rem == 0 {
+			if s.start > a && s.start < z {
+				return 0, 0, false
+			}
+			if s.start <= a {
+				a += ins
+				z += ins
+			}
+			continue
+		}
+		if a == z {
+			if s.start < a && s.oldEnd > a {
+				return 0, 0, false
+			}
+		} else if s.oldEnd > a && s.start < z {
+			return 0, 0, false
+		}
+		if s.oldEnd <= a {
+			a += ins - rem
+			z += ins - rem
+		}
+	}
+	return a, z, true
+}
+
+// mapComposedSteps translates non-overlapping document steps into the
+// coordinate space of the composed text (where [a, z) is replaced by cl runes).
+func mapComposedSteps(a, z, cl int, steps []change) (change, []change) {
+	out := make([]change, len(steps))
+	for i, s := range steps {
+		rem := s.oldEnd - s.start
+		ins := s.newEnd - s.start
+		shift := 0
+		if s.start >= z && !(rem == 0 && s.start == a) {
+			shift = cl - (z - a)
+		}
+		out[i] = change{
+			version: s.version,
+			start:   s.start + shift,
+			oldEnd:  s.oldEnd + shift,
+			newEnd:  s.newEnd + shift,
+		}
+		if s.oldEnd <= a {
+			a += ins - rem
+			z += ins - rem
+		}
+	}
+	cc := out[0]
+	for _, s := range out[1:] {
+		cc = composeChanges(cc, s)
+	}
+	return cc, out
 }
 
 // replaced takes a change of the text, made of steps: the paragraphs from
 // the one holding c.start to the one holding c.oldEnd of the text shown
 // give way to those of now, without layouts.
 func (v *view) replaced(c change, steps []change, now Text) {
-	was := v.shown
+	v.replacedParas(v.shown, now, c, steps)
+	v.shown = now
+}
+
+// replacedParas splices the paragraph views covered by c from was to now
+// while keeping unaffected paragraphs' layouts, measured heights, and scroll
+// anchor intact.
+func (v *view) replacedParas(was, now Text, c change, steps []change) {
 	pa, pz := was.paraAt(c.start), was.paraAt(c.oldEnd)
 	npz := now.paraAt(c.newEnd)
 	stay := v.scroll - v.hs.top(pa)
@@ -485,7 +599,6 @@ func (v *view) replaced(c change, steps []change, now Text) {
 		v.paras = slices.Replace(v.paras, pa, pz+1, added...)
 		v.resetHeights()
 	}
-	v.shown = now
 	switch {
 	case v.anchor > pz:
 		v.anchor += npz - pz
@@ -582,8 +695,8 @@ func (v *view) estimate() {
 	}
 }
 
-// para returns paragraph p of the text shown.
-func (v *view) para(p int) *richPara { return seqAt(v.shown.seq(), p) }
+// para returns paragraph p of the text laid out.
+func (v *view) para(p int) *richPara { return seqAt(v.composedText().seq(), p) }
 
 // paraFont returns the font of a paragraph of style st.
 func (v *view) paraFont(st ParagraphStyle) ui.Font {
@@ -689,7 +802,7 @@ func (v *view) space(p int, st ParagraphStyle) (above, below float32) {
 		}
 	}
 	if v.opts.Space != nil {
-		above = max(0, above+v.opts.Space(p))
+		above = max(0, above+v.opts.Space(v.docPara(p)))
 	}
 	return above, below
 }
@@ -748,17 +861,17 @@ func (look *look) span(text string, a Attributes, st ParagraphStyle) ui.Span {
 }
 
 // lineOf returns the text of paragraph p, without its newline.
-func (v *view) lineOf(p int) string { return rope.TextOf(v.shown.text).Line(p) }
+func (v *view) lineOf(p int) string { return rope.TextOf(v.composedText().text).Line(p) }
 
 // paraLayout returns paragraph p laid out, with the composition at the
 // caret: it keeps the layout until the paragraph's runs or style change.
 func (v *view) paraLayout(p int) *paraView {
 	pv := &v.paras[p]
 	para := v.para(p)
-	compose, at := "", 0
+	compose := ""
 	if v.compose != "" {
-		if cp := v.shown.paraAt(v.caret); cp == p {
-			compose, at = v.compose, v.caret-v.shown.paraStart(p)
+		if t := v.composedText(); t.paraAt(v.composeStart()) == p {
+			compose = v.compose
 		}
 	}
 	var first *attrRun
@@ -766,7 +879,7 @@ func (v *view) paraLayout(p int) *paraView {
 		first = unsafe.SliceData(para.runs)
 	}
 	indent := v.firstLine(p, para.style)
-	if pv.layout != nil && pv.id == para.id && pv.runs == first && pv.nruns == len(para.runs) && pv.style == para.style && pv.compose == compose && pv.at == at && pv.indent == indent {
+	if pv.layout != nil && pv.id == para.id && pv.runs == first && pv.nruns == len(para.runs) && pv.style == para.style && pv.compose == compose && pv.indent == indent {
 		// The space around it follows its neighbours, which may have
 		// changed without it: a code block's last line, the first heading,
 		// a body paragraph after one that became a heading.
@@ -785,12 +898,6 @@ func (v *view) paraLayout(p int) *paraView {
 	v.look.width = max(v.width-left-right-1, 1)
 	line := v.lineOf(p)
 	var spans []ui.Span
-	var typing Attributes
-	if compose != "" {
-		v.doc.lock()
-		typing = v.doc.typingAttributes()
-		v.doc.mu.Unlock()
-	}
 	off, done := 0, 0
 	add := func(n int, a Attributes) {
 		end := off
@@ -805,24 +912,14 @@ func (v *view) paraLayout(p int) *paraView {
 	}
 	for _, run := range para.runs {
 		n := min(run.n, para.n-done)
-		if compose != "" && done <= at && at < done+n {
-			add(at-done, run.a)
-			spans = append(spans, v.look.span(compose, typing, para.style))
-			add(done+n-at, run.a)
-			compose = ""
-		} else {
-			add(n, run.a)
-		}
+		add(n, run.a)
 		done += n
 		if done >= para.n {
 			break
 		}
 	}
-	if compose != "" {
-		spans = append(spans, v.look.span(compose, typing, para.style))
-	}
 	if v.opts.Spans != nil {
-		spans = v.opts.Spans(p, para.style, spans)
+		spans = v.opts.Spans(v.docPara(p), para.style, spans)
 	}
 	// The indent is on the side the paragraph starts at, the right of one
 	// reading right to left.
@@ -847,7 +944,7 @@ func (v *view) paraLayout(p int) *paraView {
 		v.hs.add(p, float64(h), -1)
 	}
 	*pv = paraView{layout: l, units: units, id: para.id, runs: first, nruns: len(para.runs), style: para.style,
-		compose: composed, at: at, h: h, space: above + below, indent: indent}
+		compose: composed, h: h, space: above + below, indent: indent}
 	return pv
 }
 
@@ -881,27 +978,13 @@ func (v *view) origin(p int) (x float32, y float64) {
 // local returns where rune i of paragraph p is in its layout, which holds
 // the composition at the caret.
 func (v *view) local(p, i int) int {
-	l := i - v.shown.paraStart(p)
-	if v.compose != "" && i > v.caret && v.shown.paraAt(v.caret) == p {
-		l += utf8.RuneCountInString(v.compose)
-	}
-	return l
+	return v.composedLocal(i) - v.composedText().paraStart(p)
 }
 
 // global returns the rune of the text at rune l of the layout of
 // paragraph p.
 func (v *view) global(p, l int) int {
-	start := v.shown.paraStart(p)
-	if v.compose != "" && v.shown.paraAt(v.caret) == p {
-		n, c := utf8.RuneCountInString(v.compose), v.caret-start
-		switch {
-		case l > c+n:
-			l -= n
-		case l > c:
-			l = c
-		}
-	}
-	return min(start+l, start+v.para(p).n)
+	return v.documentRune(v.composedText().paraStart(p) + l)
 }
 
 // runeOfUnit returns the rune of a paragraph's layout at UTF-16 unit u.
@@ -916,9 +999,20 @@ func (pv *paraView) runeOfUnit(u int) int {
 // caretAt returns the caret before rune i, extra runes into a composition
 // there, in the content: its x, top and height.
 func (v *view) caretAt(i, extra int, affinity ui.TextAffinity) (x float32, y float64, h float32) {
-	p := v.shown.paraAt(i)
+	local := v.composedLocal(i)
+	if i >= v.composeStart() {
+		local += extra
+	}
+	return v.composedCaretAt(local, affinity)
+}
+
+// composedCaretAt returns the caret before rune i of the text an input
+// method sees.
+func (v *view) composedCaretAt(i int, affinity ui.TextAffinity) (x float32, y float64, h float32) {
+	text := v.composedText()
+	p := text.paraAt(i)
 	pv := v.paraLayout(p)
-	l := min(v.local(p, i)+extra, len(pv.units)-1)
+	l := min(i-text.paraStart(p), len(pv.units)-1)
 	r := pv.layout.CaretAt(ui.TextCaretPosition{Index: pv.units[l], Affinity: affinity})
 	ox, oy := v.origin(p)
 	return ox + r.X, oy + float64(r.Y), r.H
@@ -930,7 +1024,7 @@ func (v *view) positionAt(x float32, y float64) (int, ui.TextAffinity) {
 	if p < 0 {
 		return v.shown.Len(), ui.TextUpstream
 	}
-	return v.global(p, l), aff
+	return v.documentRune(v.composedText().paraStart(p) + l), aff
 }
 
 // layoutPositionAt returns the paragraph closest to (x, y) in the content
@@ -959,13 +1053,14 @@ func (v *view) layoutPositionAt(x float32, y float64) (p, l int, aff ui.TextAffi
 
 // lineEdges returns the edges of the visual line holding rune i.
 func (v *view) lineEdges(i int) (int, int) {
-	p := v.shown.paraAt(i)
+	text := v.composedText()
+	p := text.paraAt(v.composedLocal(i))
 	pv := v.paraLayout(p)
 	r := pv.layout.CaretAt(ui.TextCaretPosition{Index: pv.units[min(v.local(p, i), len(pv.units)-1)], Affinity: v.affinity})
 	mid := r.Y + r.H/2
 	a := pv.layout.PositionAt(ui.Point{X: -1e6, Y: mid})
 	z := pv.layout.PositionAt(ui.Point{X: 1e6, Y: mid})
-	s, e := v.global(p, pv.runeOfUnit(a.Index)), v.global(p, pv.runeOfUnit(z.Index))
+	s, e := v.documentRune(text.paraStart(p)+pv.runeOfUnit(a.Index)), v.documentRune(text.paraStart(p)+pv.runeOfUnit(z.Index))
 	if s > e {
 		s, e = e, s
 	}
@@ -1003,7 +1098,7 @@ func (v *view) anchorCaret() {
 	if !v.focused || v.opts.ReadOnly || v.scroll <= 0 {
 		return
 	}
-	p := v.shown.paraAt(v.caret)
+	p := v.composedText().paraAt(v.composeStart() + v.composeCaret)
 	if p < v.first || p > v.last {
 		return
 	}
@@ -1043,16 +1138,16 @@ func (v *view) layout(w, h float32) {
 	v.place(h)
 	if v.reveal {
 		v.reveal = false
-		_, y, ch := v.caretAt(v.caret, v.composeCaret, v.affinity)
+		_, y, ch := v.composedCaretAt(v.composeStart()+v.composeCaret, v.affinity)
 		switch {
 		case y < v.scroll:
 			v.setScroll(y)
 		case y+float64(ch) > v.scroll+float64(h):
-			p := v.shown.paraAt(v.caret)
+			p := v.composedText().paraAt(v.composeStart() + v.composeCaret)
 			for q, room := p-1, y+float64(ch)-v.hs.top(p); q >= 0 && room < float64(h); q-- {
 				room += float64(v.paraLayout(q).h)
 			}
-			_, y, ch = v.caretAt(v.caret, v.composeCaret, v.affinity)
+			_, y, ch = v.composedCaretAt(v.composeStart()+v.composeCaret, v.affinity)
 			v.setScroll(y + float64(ch) - float64(h))
 		}
 		v.place(h)
@@ -1214,7 +1309,7 @@ func (d *Document) ScrollToParagraph(i int, align ui.ScrollAlign) {
 	if v == nil || len(v.paras) == 0 {
 		return
 	}
-	i = max(0, min(i, len(v.paras)-1))
+	i = max(0, min(v.composedPara(i), len(v.paras)-1))
 	h := float64(v.viewH)
 	// The paragraphs above it that the view may show are laid out first,
 	// for their heights, as revealing the caret does.
@@ -1267,7 +1362,7 @@ func (v *view) caretRect() (ui.Rect, bool) {
 	if len(v.paras) == 0 {
 		return ui.Rect{}, false
 	}
-	x, y, h := v.caretAt(v.caret, v.composeCaret, v.affinity)
+	x, y, h := v.composedCaretAt(v.composeStart()+v.composeCaret, v.affinity)
 	r := ui.Rect{X: v.padX + x, Y: v.padY + float32(y-v.scroll), W: 1, H: h}
 	return r, r.Y+r.H > 0 && r.Y < v.rect.H
 }
@@ -1277,13 +1372,13 @@ func (v *view) boxes(out []ParagraphBox) []ParagraphBox {
 	if v.first > v.last || v.first >= len(v.paras) {
 		return out
 	}
-	// Each start is counted on from the one before, as paint does: found
-	// from the start of the text, each cost as much as the text is long.
-	ps := v.shown.paraStart(v.first)
+	ct := v.composedText()
+	ps := ct.paraStart(v.first)
 	for i := v.first; i <= v.last && i < len(v.paras); i, ps = i+1, ps+v.para(i).n+1 {
 		pv := v.sized(i)
 		_, y := v.origin(i)
-		out = append(out, ParagraphBox{Index: i, Start: ps, Top: v.padY + float32(y-v.scroll), Height: pv.h - pv.space})
+		start := v.documentRune(ps)
+		out = append(out, ParagraphBox{Index: v.docPara(i), Start: start, Top: v.padY + float32(y-v.scroll), Height: pv.h - pv.space})
 	}
 	return out
 }

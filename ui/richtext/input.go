@@ -35,7 +35,7 @@ func (v *view) input(ev ui.InputEvent) bool {
 		if v.opts.ReadOnly || ev.Text == "" {
 			return false
 		}
-		v.compose = ""
+		v.clearComposition()
 		v.insert(ev.Text)
 		v.typed(ev.Text)
 		v.blinkStart = ev.Time
@@ -161,7 +161,7 @@ func (v *view) grapheme(i, dir int) int {
 // span and in it) or a line wrapped within a word (the end of one line and
 // the start of the next), and a step between them is a move.
 func (v *view) visual(dir int) (int, ui.TextAffinity) {
-	p := v.shown.paraAt(v.caret)
+	p := v.composedText().paraAt(v.composedLocal(v.caret))
 	pv := v.paraLayout(p)
 	l := min(v.local(p, v.caret), len(pv.units)-1)
 	pos := ui.TextCaretPosition{Index: pv.units[l], Affinity: v.affinity}
@@ -212,7 +212,7 @@ func (v *view) vertical(lines int, extend bool) {
 			// line. Past it, to the last line of the paragraph before
 			// or the first of the one after; at the text's start or
 			// end, there.
-			p := v.shown.paraAt(v.caret)
+			p := v.composedText().paraAt(v.composedLocal(v.caret))
 			switch {
 			case lines < 0 && p > 0:
 				i, a = v.positionAt(v.desiredX, v.hs.top(p)-1)
@@ -245,8 +245,8 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 		if to, ok := emacsKeys[key]; ok {
 			key, m = to, 0
 		} else {
-			p := v.shown.paraAt(v.caret)
-			ps := v.shown.paraStart(p)
+			p := v.composedText().paraAt(v.composedLocal(v.caret))
+			ps := v.composedText().paraStart(p)
 			pe := ps + v.para(p).n
 			switch key {
 			case ui.KeyA:
@@ -397,9 +397,9 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 	if readOnly {
 		return false
 	}
-	p := v.shown.paraAt(v.caret)
+	p := v.composedText().paraAt(v.composedLocal(v.caret))
 	st := v.para(p).style
-	ps := v.shown.paraStart(p)
+	ps := v.composedText().paraStart(p)
 	switch key {
 	case ui.KeyBackspace:
 		switch {
@@ -717,24 +717,26 @@ func (v *view) linkAt(x float32, y float64) string {
 	}
 	ox, oy := v.origin(p)
 	lx, ly := x-ox, float32(y-oy)
+	ct := v.composedText()
+	ps := ct.paraStart(p)
+	para := v.para(p)
+	cStart, cEnd := 0, 0
+	if v.compose != "" {
+		cs := v.composeStart()
+		ce := cs + utf8.RuneCountInString(v.compose)
+		cStart, cEnd = max(0, cs-ps), min(para.n, ce-ps)
+	}
 	for _, object := range pv.layout.Objects() {
 		if object.Rect.Contains(lx, ly) {
 			at := pv.runeOfUnit(object.Index)
-			start := v.caret - v.shown.paraStart(p)
-			if v.compose != "" && v.shown.paraAt(v.caret) == p && at >= start && at < start+len([]rune(v.compose)) {
+			if cStart < cEnd && at >= cStart && at < cEnd {
 				return ""
 			}
 			return v.shown.AttributesAt(v.global(p, at)).Link
 		}
 	}
-	para := v.para(p)
 	if para.n == 0 || len(pv.units) < 2 {
 		return ""
-	}
-	cAt, cLen := para.n+1, 0
-	if v.compose != "" && v.shown.paraAt(v.caret) == p {
-		cAt = v.caret - v.shown.paraStart(p)
-		cLen = utf8.RuneCountInString(v.compose)
 	}
 	hit := func(from, to int) bool {
 		if from >= to || from < 0 || to >= len(pv.units) {
@@ -748,13 +750,10 @@ func (v *view) linkAt(x float32, y float64) string {
 		return false
 	}
 	hitDoc := func(a, z int) bool {
-		if cLen == 0 || z <= cAt {
+		if cStart >= cEnd || z <= cStart || a >= cEnd {
 			return hit(a, z)
 		}
-		if a >= cAt {
-			return hit(a+cLen, z+cLen)
-		}
-		return hit(a, cAt) || hit(cAt+cLen, z+cLen)
+		return hit(a, min(z, cStart)) || hit(max(a, cEnd), z)
 	}
 	at, spanStart := 0, 0
 	link := ""

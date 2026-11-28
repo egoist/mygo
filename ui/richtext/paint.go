@@ -58,11 +58,14 @@ func (v *view) paintText(p *ui.Painter, r ui.Rect, w float32) {
 	// Each one's start is counted on from the one before it; found from the
 	// start of the text, it cost as much as the text is long, for each one.
 	vis := p.Visible()
-	compose := -1
+	ct := v.composedText()
+	composing := v.compose != "" || v.pendingSet
+	cs, ce := 0, 0
 	if v.compose != "" {
-		compose = v.shown.paraAt(v.caret)
+		cs = v.composeStart()
+		ce = cs + len([]rune(v.compose))
 	}
-	ps := v.shown.paraStart(v.first)
+	ps := ct.paraStart(v.first)
 	for i := v.first; i <= v.last && i < len(v.paras); i, ps = i+1, ps+v.para(i).n+1 {
 		top := oy + float32(v.hs.top(i)-v.scroll)
 		if bottom := oy + float32(v.hs.top(i+1)-v.scroll); bottom < vis.Y || top > vis.Y+vis.H {
@@ -74,8 +77,8 @@ func (v *view) paintText(p *ui.Painter, r ui.Rect, w float32) {
 		x, y := ox+px, oy+float32(py-v.scroll)
 		v.paintBlock(p, i, st, ox, top, pv.h, w)
 		pe := ps + v.para(i).n
-		if a != z && a <= pe && z >= ps && (focused || v.opts.ReadOnly) {
-			from, to := v.local(i, max(a, ps)), v.local(i, min(z, pe))
+		if !composing && a != z && a <= pe && z >= ps && (focused || v.opts.ReadOnly) {
+			from, to := max(a, ps)-ps, min(z, pe)-ps
 			color := look.Selection
 			for _, s := range pv.layout.SelectionRects(ui.TextInputRange{Start: pv.units[from], End: pv.units[to]}) {
 				p.Fill(ui.Rect{X: x + s.X, Y: y + s.Y, W: s.W, H: s.H}, color, 0)
@@ -89,18 +92,17 @@ func (v *view) paintText(p *ui.Painter, r ui.Rect, w float32) {
 		p.TextLayout(pv.layout, x, y, look.Text)
 		v.paintAttachments(p, i, pv, x, y)
 		v.paintMarker(p, i, st, pv, x, y)
-		if compose == i {
-			c := v.local(i, v.caret)
-			n := len([]rune(v.compose))
-			for _, s := range pv.layout.SelectionRects(ui.TextInputRange{Start: pv.units[c], End: pv.units[min(c+n, len(pv.units)-1)]}) {
+		if cs < ce && cs < pe && ce > ps {
+			from, to := max(cs, ps)-ps, min(ce, pe)-ps
+			for _, s := range pv.layout.SelectionRects(ui.TextInputRange{Start: pv.units[from], End: pv.units[min(to, len(pv.units)-1)]}) {
 				p.Fill(ui.Rect{X: x + s.X, Y: y + s.Y + s.H - 2, W: s.W, H: 1}, look.Text, 0)
 			}
 		}
 	}
-	if focused && !v.opts.ReadOnly && a == z {
+	if focused && !v.opts.ReadOnly && (a == z || composing) {
 		const blink = 530 * time.Millisecond
 		if phase := p.Now().Sub(v.blinkStart); (phase/blink)%2 == 0 || phase < 0 {
-			cx, cy, ch := v.caretAt(v.caret, v.composeCaret, v.affinity)
+			cx, cy, ch := v.composedCaretAt(v.composeStart()+v.composeCaret, v.affinity)
 			scale := p.Scale()
 			p.Fill(ui.Rect{X: ox + cx, Y: oy + float32(cy-v.scroll), W: max(1/scale, 1), H: ch}, look.Caret, 0)
 		}
@@ -121,7 +123,7 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 		if first && v.opts.Space != nil {
 			// The room an app leaves above the block, as a place opened
 			// for an item dragged, is outside it.
-			room := max(0, v.opts.Space(i))
+			room := max(0, v.opts.Space(v.docPara(i)))
 			top, height = top+room, height-room
 		}
 		box := ui.Rect{X: x + indent, Y: top, W: width - indent, H: height}
@@ -145,7 +147,7 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 			if st.Heading > 0 {
 				var room, gap float32
 				if v.opts.Space != nil {
-					room = max(0, v.opts.Space(i))
+					room = max(0, v.opts.Space(v.docPara(i)))
 				}
 				if look.ParagraphSpacing > 0 && i > 0 && body(v.para(i-1).style) {
 					gap = look.size * look.ParagraphSpacing
@@ -300,13 +302,13 @@ func (v *view) paintAttachments(p *ui.Painter, i int, pv *paraView, x, y float32
 	if len(objects) == 0 {
 		return
 	}
-	ps := v.shown.paraStart(i)
+	ps := v.composedText().paraStart(i)
 	for _, o := range objects {
 		l := pv.runeOfUnit(o.Index)
-		if v.compose != "" && v.shown.paraAt(v.caret) == i && l >= v.caret-ps && l < v.caret-ps+len([]rune(v.compose)) {
+		if v.compose != "" && v.composedText().paraAt(v.composeStart()) == i && l >= v.composeStart()-ps && l < v.composeStart()-ps+len([]rune(v.compose)) {
 			continue
 		}
-		at := v.shown.AttributesAt(v.global(i, l)).Attachment
+		at := v.shown.AttributesAt(v.documentRune(ps + l)).Attachment
 		r := ui.Rect{X: x + o.Rect.X, Y: y + o.Rect.Y, W: o.Rect.W, H: o.Rect.H}
 		switch {
 		case at == nil:
