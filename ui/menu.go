@@ -1037,6 +1037,13 @@ func accelerator(mods Modifiers, key Key) string {
 	return b.String()
 }
 
+// ShortcutText writes a key with its modifiers as a menu draws it: "⌘K" on
+// a Mac and "Ctrl+K" elsewhere. It is empty for a key of none, so a caller
+// can draw it as a row's shortcut without asking whether there is one.
+func ShortcutText(mods Modifiers, key Key) string {
+	return shortcutText(accelerator(mods, key))
+}
+
 func keyName(k Key) string {
 	switch {
 	case k >= KeyA && k <= KeyZ:
