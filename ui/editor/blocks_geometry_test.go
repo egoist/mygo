@@ -149,7 +149,7 @@ func TestPlacedElementIdentities(t *testing.T) {
 // IME anchors and painted stand-in carets share one full-height cell.
 // Blocks stay fixed horizontally while the source scrolls sideways.
 func TestBlocksStandInCaretGeometryAndShape(t *testing.T) {
-	for _, shape := range []CursorShape{CursorBar, CursorBlock, CursorUnderline} {
+	for _, shape := range []CursorShape{CursorBar, CursorBlock, CursorUnderline, CursorNone} {
 		for _, focused := range []bool{true, false} {
 			ct := newEditorTest(t, "", strings.Repeat("x", 200)+"\ntable\nsource\nend")
 			ct.st.Theme, ct.st.NoActiveLine, ct.st.CursorShape = redTheme, true, shape
@@ -167,7 +167,7 @@ func TestBlocksStandInCaretGeometryAndShape(t *testing.T) {
 				t.Fatalf("shape %v, focused %v: revealing a fixed block changed horizontal scroll to %v", shape, focused, ed.scrollX)
 			}
 			want := ui.Rect{X: ed.scrollX - 3, Y: ed.view.lineHeight, W: 2, H: 80}
-			if shape != CursorBar {
+			if shape == CursorBlock || shape == CursorUnderline {
 				want.W = min(ed.view.charWidth, ed.textX-ed.gutterW-1)
 				want.X = ed.scrollX - 1 - want.W
 			}
@@ -188,9 +188,9 @@ func TestBlocksStandInCaretGeometryAndShape(t *testing.T) {
 			middle := red(x+want.W/2, y+40)
 			top, bottom := red(x+want.W/2, y+0.5), red(x+want.W/2, y+79.5)
 			switch {
-			case !focused && shape != CursorBlock:
+			case shape == CursorNone || (!focused && shape != CursorBlock):
 				if middle || top || bottom {
-					t.Fatalf("an unfocused %v caret is visible", shape)
+					t.Fatalf("shape %v, focused %v: caret is visible", shape, focused)
 				}
 			case shape == CursorBar:
 				if !middle || !top || !bottom || red(x+4, y+40) {

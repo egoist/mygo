@@ -1,7 +1,9 @@
 package editor
 
 import (
+	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -129,6 +131,116 @@ func TestCursorShape(t *testing.T) {
 	ct.tt.Frame()
 	if ct.st.Focused() || inBlock(0, 0) || !red(0, 0, 0.5) || !red(0, 0, lh-0.5) {
 		t.Fatal("the block caret of an unfocused editor is not outlined")
+	}
+}
+
+// CursorNone hides the carets, focused or not, without arming the blink
+// timer, while keeping caret geometry for Rect and input methods.
+func TestCursorNone(t *testing.T) {
+	ct := newEditorTest(t, "", "|abc\nab")
+	ct.st.Theme, ct.st.NoActiveLine = redTheme, true
+	ct.tt.Frame()
+	ed := &ct.st.ed
+	cw, lh := ed.view.charWidth, ed.view.lineHeight
+
+	barRect0, ok := ct.st.Rect(0)
+	if !ok {
+		t.Fatal("Rect(0) failed with CursorBar")
+	}
+	barRect5, ok := ct.st.Rect(5)
+	if !ok {
+		t.Fatal("Rect(5) failed with CursorBar")
+	}
+	barIME, ok := ct.tt.TextCaret()
+	if !ok {
+		t.Fatal("TextCaret failed with CursorBar")
+	}
+
+	hasRedAround := func(r ui.Rect) bool {
+		img := ct.tt.Image()
+		b := img.Bounds()
+		for y := max(0, int(ed.r.Y+r.Y)); y < min(b.Max.Y, int(ed.r.Y+r.Y+r.H)); y++ {
+			for x := max(0, int(ed.r.X+r.X-2)); x <= min(b.Max.X-1, int(ed.r.X+r.X+cw+2)); x++ {
+				c := img.RGBAAt(x, y)
+				if c.R > 200 && int(c.R)-int(c.G) > 50 && int(c.R)-int(c.B) > 50 {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !hasRedAround(barRect0) {
+		t.Fatal("expected bar caret to paint red pixels")
+	}
+	// What a frame shows without carets: the bars' frame while they blink
+	// off, or while the editor is unfocused. Compared whole, as glyphs'
+	// subpixel fringes (ClearType on Windows) can look red.
+	snapshot := func() []byte { return slices.Clone(ct.tt.Image().Pix) }
+	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
+	ct.tt.Frame()
+	ct.tt.Advance(blinkInterval)
+	barsOff := snapshot()
+	ct.tt.SetFocused(false)
+	ct.tt.Frame()
+	barsUnfocused := snapshot()
+	ct.tt.SetFocused(true)
+
+	ct.st.CursorShape = CursorNone
+	ct.tt.Frame()
+	if !ct.st.Focused() {
+		t.Fatal("expected editor to stay focused")
+	}
+	if got, ok := ct.st.Rect(0); !ok || got != barRect0 {
+		t.Fatalf("Rect(0) = %+v (%v), want %+v", got, ok, barRect0)
+	}
+	if got, ok := ct.st.Rect(5); !ok || got != barRect5 {
+		t.Fatalf("Rect(5) = %+v (%v), want %+v", got, ok, barRect5)
+	}
+	if got, ok := ct.tt.TextCaret(); !ok || got.H != lh {
+		t.Fatalf("TextCaret = %+v (%v), want row height %v", got, ok, lh)
+	}
+	ct.st.Select(0, 0)
+	ct.tt.Frame()
+	if got, ok := ct.tt.TextCaret(); !ok || got != barIME {
+		t.Fatalf("TextCaret = %+v (%v), want %+v", got, ok, barIME)
+	}
+	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
+	ct.tt.Frame()
+
+	if !bytes.Equal(snapshot(), barsOff) {
+		t.Fatal("focused CursorNone painted caret pixels")
+	}
+
+	if ct.tt.FramePending() {
+		t.Fatal("focused CursorNone left a frame pending")
+	}
+	lastPaint := ed.frameNow
+	ct.tt.Advance(5 * blinkInterval)
+	if !ed.frameNow.Equal(lastPaint) || ct.tt.FramePending() {
+		t.Fatalf("focused CursorNone painted during idle Advance (frameNow %v -> %v, pending %v)", lastPaint, ed.frameNow, ct.tt.FramePending())
+	}
+
+	ct.key(0, ui.KeyRight)
+	lastPaint = ed.frameNow
+	ct.tt.Advance(5 * blinkInterval)
+	if !ed.frameNow.Equal(lastPaint) || ct.tt.FramePending() {
+		t.Fatalf("focused CursorNone armed a blink timer after caret move (frameNow %v -> %v, pending %v)", lastPaint, ed.frameNow, ct.tt.FramePending())
+	}
+
+	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
+	ct.tt.SetFocused(false)
+	ct.tt.Frame()
+	if !bytes.Equal(snapshot(), barsUnfocused) {
+		t.Fatal("unfocused CursorNone painted caret pixels")
+	}
+
+	ct.tt.SetFocused(true)
+	ct.st.CursorShape = CursorBar
+	ct.tt.Frame()
+	lastPaint = ed.frameNow
+	ct.tt.Advance(blinkInterval)
+	if ed.frameNow.Equal(lastPaint) {
+		t.Fatal("CursorBar did not wake for blink after switching back from CursorNone")
 	}
 }
 

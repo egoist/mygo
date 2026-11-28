@@ -290,8 +290,10 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
 - `CursorShape` paints carets as bars (`CursorBar`), as blocks over the
   character after them (`CursorBlock`), as Vim's normal mode does,
   translucent so that the character shows and outlined while the editor
-  hasn't the keyboard, or as underlines (`CursorUnderline`), as its
-  pending operators do.
+  hasn't the keyboard, as underlines (`CursorUnderline`), as its
+  pending operators do, or not at all (`CursorNone`), for apps that draw
+  their own: no blink timer runs, and `Rect` and input methods still
+  place the carets.
 - `DiffBase` is the text the buffer's changes show against in the gutter,
   as the file in Git: bars mark the lines added and changed, and a mark
   where lines were deleted. Cmd+F8 goes to the next change, and Cmd+Alt+Z
