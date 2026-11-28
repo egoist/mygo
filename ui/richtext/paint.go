@@ -88,7 +88,9 @@ func (v *view) paintText(p *ui.Painter, r ui.Rect, w float32) {
 		}
 		p.TextLayout(pv.layout, x, y, look.Text)
 		v.paintAttachments(p, i, pv, x, y)
-		v.paintMarker(p, i, st, pv, x, y)
+		if v.opts.NoMarker == nil || !v.opts.NoMarker(i, st) {
+			v.paintMarker(p, i, st, pv, x, y)
+		}
 		if compose == i {
 			c := v.local(i, v.caret)
 			n := len([]rune(v.compose))

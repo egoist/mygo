@@ -1717,3 +1717,55 @@ func TestRichTextPasteForgetsColumn(t *testing.T) {
 		}
 	}
 }
+
+// NoMarker leaves the markers it names unpainted, the task's box here,
+// and paints the others: the bullet's.
+func TestNoMarker(t *testing.T) {
+	doc := NewDocument(TextOf(
+		Paragraph{Style: ParagraphStyle{List: Tasks}, Runs: []Run{{Text: "a"}}},
+		Paragraph{Style: ParagraphStyle{List: Bullets}, Runs: []Run{{Text: "b"}}},
+	))
+	var asked []int
+	noBox := false
+	tt := ui.NewTester(func(c *ui.Context) {
+		opts := EditorOptions{}
+		if noBox {
+			opts.NoMarker = func(p int, style ParagraphStyle) bool {
+				asked = append(asked, p)
+				return style.List == Tasks
+			}
+		}
+		Editor(c, doc, opts).Fill()
+	}, 300, 200)
+	tt.Frame()
+	boxes := doc.VisibleParagraphs()
+	if len(boxes) < 2 {
+		t.Fatalf("paragraphs in view: %d", len(boxes))
+	}
+	img := tt.Image()
+	s := img.Bounds().Dx() / 300
+	// a paragraph's lines, its marker the only thing that changes there
+	marks := func(b ParagraphBox) []byte {
+		var px []byte
+		for y := int(b.Top) * s; y < int(b.Top+b.Height)*s; y++ {
+			for x := 0; x < img.Bounds().Dx(); x++ {
+				c := img.RGBAAt(x, y)
+				px = append(px, c.R, c.G, c.B)
+			}
+		}
+		return px
+	}
+	box, bullet := marks(boxes[0]), marks(boxes[1])
+	noBox = true
+	tt.Frame()
+	img = tt.Image()
+	if bytes.Equal(marks(boxes[0]), box) {
+		t.Fatal("the task's box is painted")
+	}
+	if !bytes.Equal(marks(boxes[1]), bullet) {
+		t.Fatal("the bullet is not painted as it was")
+	}
+	if !slices.Contains(asked, 0) || !slices.Contains(asked, 1) {
+		t.Fatalf("NoMarker asked about %v", asked)
+	}
+}
