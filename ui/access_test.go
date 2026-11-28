@@ -501,3 +501,27 @@ func TestRowNamedByLabels(t *testing.T) {
 	}
 	t.Error("no row for assistive technology")
 }
+
+// TestAccessSelectTextForgetsColumn checks that Up and Down after
+// assistive technology selected text in a text area go from where it put
+// the caret, not from the column a vertical move remembered before.
+func TestAccessSelectTextForgetsColumn(t *testing.T) {
+	v := "aaaaaa\naaaaaa\naaaaaa"
+	var in *node
+	tt := coreNewTester(func(c *context) {
+		in = coreTextAreaBase(c, &v).Width(250).AutoFocus()
+	}, 300, 200)
+	in.SetTextSelection(0, 0)
+	tt.Frame()
+	tt.Key(0, KeyDown)
+	if start, end := in.TextSelection(); start != 7 || end != 7 {
+		t.Fatalf("Down from 0 = %d–%d, want 7", start, end)
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	area := accessNode(t, tt.h.access, platform.RoleTextField, "")
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: area.ID, Action: platform.AccessSelectText, From: 12, To: 12})
+	tt.Key(0, KeyDown)
+	if start, end := in.TextSelection(); start != 19 || end != 19 {
+		t.Fatalf("Down after selecting 12 = %d–%d, want 19", start, end)
+	}
+}

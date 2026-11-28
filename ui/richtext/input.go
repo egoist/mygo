@@ -52,6 +52,7 @@ func (v *view) input(ev ui.InputEvent) bool {
 		n := v.shown.Len()
 		v.selAnchor, v.caret = max(0, min(ev.Start, n)), max(0, min(ev.End, n))
 		v.affinity = ui.TextDownstream
+		v.hasDesired = false
 		v.reveal = true
 		return true
 	case ui.InputScroll:

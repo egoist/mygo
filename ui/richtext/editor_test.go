@@ -566,6 +566,26 @@ func TestRichTextKeyboardMovesSelection(t *testing.T) {
 	}
 }
 
+// TestRichTextAccessSelectForgetsColumn checks that Up and Down after
+// assistive technology selected text go from where it put the caret, not
+// from the column a vertical move remembered before.
+func TestRichTextAccessSelectForgetsColumn(t *testing.T) {
+	doc := NewDocument(NewText("aaaaaa\naaaaaa\naaaaaa"))
+	tt, _ := richTester(t, doc)
+	doc.SetSelection(0, 0)
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 7 || c != 7 {
+		t.Fatalf("Down from 0 = (%d, %d), want (7, 7)", a, c)
+	}
+	doc.shownIn.Value().input(ui.InputEvent{Kind: ui.InputSelect, Start: 12, End: 12})
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 19 || c != 19 {
+		t.Fatalf("Down after selecting 12 = (%d, %d), want (19, 19)", a, c)
+	}
+}
+
 // TestRichTextSetMarkedEmpty checks that SetMarkedText with an empty string
 // and nil range from idle is a no-op (leaving selection and undo intact), and
 // that clearing preedit before UnmarkText and ReplaceText (GTK commit order)
