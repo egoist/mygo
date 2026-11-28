@@ -28,6 +28,8 @@ var (
 	itemsByID  = map[int][]nativeItem{}
 	// menuHighlightDelegate is kept here: NSMenu holds its delegate weakly.
 	menuHighlightDelegate id
+	trayMenuDelegate      id
+	trayMenus             = map[id]*tray{}
 	nativeRoleSel         = map[string]string{
 		"undo":               "undo:",
 		"redo":               "redo:",
@@ -173,6 +175,22 @@ func registerMenuTarget() {
 		}),
 	})
 	menuHighlightDelegate = send(send(class("MyGoMenuHighlight"), "alloc"), "init")
+	classDef("MyGoTrayMenuDelegate", "NSObject", nil, []objc.MethodDef{
+		method("menuWillOpen:", func(self id, _ objc.SEL, menu id) {
+			if t := trayMenus[menu]; t != nil && t.h != nil {
+				t.openingMenu = menu
+				t.h.MenuWillOpen()
+				t.openingMenu = 0
+			}
+		}),
+		method("menu:willHighlightItem:", func(self id, _ objc.SEL, menu, item id) {
+			highlightKeepOpenViews(menu, item)
+		}),
+		method("menuDidClose:", func(self id, _ objc.SEL, menu id) {
+			highlightKeepOpenViews(menu, 0)
+		}),
+	})
+	trayMenuDelegate = send(send(class("MyGoTrayMenuDelegate"), "alloc"), "init")
 }
 
 // highlightKeepOpenViews shows the selection of a menu in the views of its
@@ -295,6 +313,11 @@ type menuMetrics struct {
 // buildMenu creates an autoreleased NSMenu.
 func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 	menu := autorelease(send(send(class("NSMenu"), "alloc"), "initWithTitle:", uintptr(nsString(title))))
+	b.populateMenu(menu, m, owner)
+	return menu
+}
+
+func (b *Backend) populateMenu(menu id, m *platform.Menu, owner int) {
 	send(menu, "setAutoenablesItems:", boolArg(slices.ContainsFunc(m.Items, validatesItem)))
 	badgeStart, badgeWidth := badgeColumn(m)
 	keepOpenStart, keepOpenWidth, keepOpenView, keepOpenLabelX := keepOpenMetrics(m)
@@ -307,9 +330,11 @@ func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 		// NSMenu sizes itself from its titles, which a view replaces: without
 		// this, it cuts the right of the views off.
 		msgSetFloat(menu, sel("setMinimumWidth:"), keepOpenView)
-		if menuHighlightDelegate != 0 {
+		if menuHighlightDelegate != 0 && trayMenus[menu] == nil {
 			send(menu, "setDelegate:", uintptr(menuHighlightDelegate))
 		}
+	} else if trayMenus[menu] != nil {
+		msgSetFloat(menu, sel("setMinimumWidth:"), 0)
 	}
 	for _, it := range m.Items {
 		if it.Type == platform.MenuItemSeparator {
@@ -331,7 +356,6 @@ func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 			send(menu, "addItem:", uintptr(alt))
 		}
 	}
-	return menu
 }
 
 func (b *Backend) buildItem(it *platform.MenuItem, owner int, metrics menuMetrics) id {
@@ -1497,11 +1521,13 @@ func keyEquivalent(acc string) (string, uint) {
 // Tray icons (NSStatusItem).
 
 type tray struct {
-	b      *Backend
-	h      platform.TrayHandler
-	item   id
-	button id
-	owner  int
+	b           *Backend
+	h           platform.TrayHandler
+	item        id
+	button      id
+	menu        id
+	openingMenu id
+	owner       int
 	// autosave is the item's autosave name (SetID), under which macOS
 	// keeps its place in the menu bar.
 	autosave string
@@ -1666,11 +1692,27 @@ func (t *tray) SetToolTip(tip string) {
 func (t *tray) SetMenu(m *platform.Menu) {
 	withPool(func() {
 		dropOwner(t.owner)
+		if t.openingMenu != 0 && m != nil {
+			send(t.openingMenu, "removeAllItems")
+			t.b.populateMenu(t.openingMenu, m, t.owner)
+			return
+		}
+		if t.menu != 0 {
+			delete(trayMenus, t.menu)
+			t.menu = 0
+		}
+		t.openingMenu = 0
 		if m == nil {
 			send(t.item, "setMenu:", 0)
 			return
 		}
-		send(t.item, "setMenu:", uintptr(t.b.buildMenu(m, "", t.owner)))
+		menu := t.b.buildMenu(m, "", t.owner)
+		if trayMenuDelegate != 0 {
+			send(menu, "setDelegate:", uintptr(trayMenuDelegate))
+		}
+		t.menu = menu
+		trayMenus[menu] = t
+		send(t.item, "setMenu:", uintptr(menu))
 	})
 }
 
@@ -1763,6 +1805,10 @@ func (t *tray) frame() NSRect {
 func (t *tray) Destroy() {
 	if t.item == 0 {
 		return
+	}
+	if t.menu != 0 {
+		delete(trayMenus, t.menu)
+		t.menu = 0
 	}
 	delete(t.b.trays, t.button)
 	// Removing a status item deletes the place the user dragged it to with

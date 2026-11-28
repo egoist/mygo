@@ -445,6 +445,30 @@ func (b *Backend) MonospacedTrayTitles() int {
 	return b.trayMonospaced
 }
 
+// TrayMenus returns the menu SetMenu set last on each living tray icon, in
+// creation order.
+func (b *Backend) TrayMenus() []*platform.Menu {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	menus := make([]*platform.Menu, len(b.trays))
+	for i, t := range b.trays {
+		menus[i] = t.menu
+	}
+	return menus
+}
+
+// SimulateTrayMenuWillOpen invokes MenuWillOpen on every living tray icon.
+func (b *Backend) SimulateTrayMenuWillOpen() {
+	b.mu.Lock()
+	trays := append([]*tray(nil), b.trays...)
+	b.mu.Unlock()
+	for _, t := range trays {
+		if t.h != nil {
+			t.h.MenuWillOpen()
+		}
+	}
+}
+
 func (b *Backend) RegisterHotkey(id int, acc, description string) error {
 	b.mu.Lock()
 	b.hotkeys[id] = acc

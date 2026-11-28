@@ -122,7 +122,9 @@ const (
 // menu template; after the item has been added to a menu, change its state
 // with the Set methods so native menus update.
 type MenuItem struct {
-	// ID identifies the item for Menu.ItemByID.
+	// ID identifies the item for Menu.ItemByID and matches items across
+	// SetMenu updates (such as in Tray.OnMenuWillOpen) so native items stay
+	// in place.
 	ID    string
 	Label string
 	Type  MenuItemType
@@ -628,6 +630,7 @@ func (m *Menu) snapshotLocked() *platform.Menu {
 func (it *MenuItem) snapshotLocked() *platform.MenuItem {
 	p := &platform.MenuItem{
 		ID:             it.uid,
+		Key:            it.ID,
 		Label:          it.Label,
 		Subtitle:       it.Subtitle,
 		Badge:          it.Badge,

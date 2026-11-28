@@ -905,17 +905,19 @@ type TrayOptions struct {
 
 // Tray is an icon in the menu bar (macOS) or notification area.
 type Tray struct {
-	native       platform.Tray
-	menu         *Menu
-	onClick      listeners[func()]
-	onRight      listeners[func()]
-	onAppearance listeners[func()]
+	native         platform.Tray
+	menu           *Menu
+	onClick        listeners[func()]
+	onRight        listeners[func()]
+	onMenuWillOpen listeners[func()]
+	onAppearance   listeners[func()]
 }
 
 type trayHandler struct{ t *Tray }
 
 func (h trayHandler) Clicked()           { fire(&h.t.onClick) }
 func (h trayHandler) RightClicked()      { fire(&h.t.onRight) }
+func (h trayHandler) MenuWillOpen()      { fire(&h.t.onMenuWillOpen) }
 func (h trayHandler) AppearanceChanged() { fire(&h.t.onAppearance) }
 
 // NewTray adds an icon to the menu bar or notification area. It must be
@@ -1060,6 +1062,11 @@ func (t *Tray) activatable() {
 // OnRightClick is called when the icon is right-clicked, or Control-clicked
 // on macOS.
 func (t *Tray) OnRightClick(fn func()) (off func()) { return t.onRight.add(fn, false) }
+
+// OnMenuWillOpen is called on the main thread just before the tray's menu
+// opens (or, on Linux under GNOME's AppIndicator extension, asynchronously as
+// it opens), so the app can update the menu on demand.
+func (t *Tray) OnMenuWillOpen(fn func()) (off func()) { return t.onMenuWillOpen.add(fn, false) }
 
 // Dark reports whether the bar the icon shows on is dark: the macOS menu
 // bar, as AppKit tints its items (by the system's appearance, or the

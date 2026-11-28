@@ -442,6 +442,28 @@ The items of a tray's menu can show [icons](#icons), as a country's flag
 beside each server, and change as the items of any menu do: the menu
 shows their state the next time it opens.
 
+When a tray's menu reflects live state (such as current latencies or
+sorted entries), register `OnMenuWillOpen` and build the menu on demand
+with `SetMenu` instead of pushing background updates while it is closed.
+Give dynamic items stable `MenuItem.ID` values so Linux can diff the
+GTK/DBusMenu tree in place without closing an already open menu or
+replacing unchanged items:
+
+```go
+tray.OnMenuWillOpen(func() {
+	tray.SetMenu(buildCurrentMenu())
+})
+```
+
+`OnMenuWillOpen` runs on the main thread when a tray with a menu is about
+to open: synchronously before displaying on macOS (`NSMenuDelegate`'s
+`menuWillOpen:`) and Windows (right-click, before `PopUpMenu`), and
+asynchronously via DBusMenu's `AboutToShow` idle signal on Linux (where
+hosts such as GNOME's AppIndicator extension show the last exported menu
+first and refresh from the ensuing DBusMenu updates). Without an attached
+menu (`SetMenu(nil)`), `OnMenuWillOpen` does not fire; use `OnRightClick`
+if you build and pop up a menu on demand with `PopUpMenu` yourself.
+
 A title that shows a changing number, such as a network speed, should
 keep its width, or the item grows and shrinks and the icon and the items
 beside it move. On macOS the title's digits all have the same width, so a
