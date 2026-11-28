@@ -56,3 +56,12 @@ func TestDecode(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// A page of no segments, as a damaged or cut file may hold, is an error,
+// not a panic of the app (oggvorbis before 1.0.6).
+func TestDamaged(t *testing.T) {
+	data := []byte("OggS\x00000000000000000000000\x000")
+	if _, err := audio.DecodeSound(data); err == nil {
+		t.Fatal("decoded a damaged file")
+	}
+}
