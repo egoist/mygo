@@ -5,7 +5,8 @@
 Package `ui/editor` is a code editor and a [diff viewer](diff-viewer.md)
 for native UI, designed after Zed's: syntax highlighting, several carets
 and selections, soft wraps, folding, finding and replacing, completions,
-hovers, diagnostics and inlay hints from the app or a language server,
+hovers, diagnostics, inlay hints and linked editing from the app or a
+language server,
 ranges shown as something else, and the commands and keys of code editors. It lays out and paints only the
 lines in view, so a file of a million lines scrolls and edits as one of
 ten.
@@ -655,6 +656,43 @@ thread as the rest of editor interaction does.
 
 Run `go run ./examples/code-editor`, type `funcdef` or `forrange` in a Go
 file, then press Tab to try it.
+
+## Linked editing
+
+Linked editing renames an HTML tag's opening and closing names together,
+as VS Code's `editor.linkedEditing` does with a language server's
+`textDocument/linkedEditingRange`. The editor asks for the ranges, and
+the app answers, at once or later:
+
+```go
+app.code.OnLinkedEditing = func(r editor.LinkedEditingRequest) {
+	go func() {
+		ranges, pattern := app.lsp.LinkedEditingRanges(r.Offset) // a language server's
+		app.win.Update(func() { app.code.SetLinkedEditingRanges(r.Version, ranges, pattern) })
+	}()
+}
+```
+
+- `OnLinkedEditing` is called as the only caret moves or the text
+  changes, while the editor has the keyboard and no session runs, once
+  for each place and version. Leave it nil to ask nothing. The app
+  debounces a language server's requests.
+- `SetLinkedEditingRanges` starts a session. While the caret stays in one
+  of the ranges, an edit there is made in the others too, in the same
+  step of undo. An answer of an older version is ignored. Fewer than two
+  ranges, ranges that overlap or touch, ranges of different texts, or
+  ranges the caret is not in start nothing, and end the running session.
+- The word pattern is the server's, compiled as a Go regular expression:
+  it must match the edited range's whole text, or the text must be
+  empty. Nil takes the editor's word characters (the language's
+  `WordChars` too).
+- The session ends when the caret leaves the ranges, a second caret is
+  added, an edit leaves the text outside the word pattern, or an edit
+  made elsewhere (another editor, `EditRemote`) changes a range's text.
+  Inserting a snippet ends it too.
+  Edits outside the ranges move them. Undo and redo keep the session.
+- `LinkedEditingRanges` returns the ranges of the session, where edits
+  moved them, as for an app to draw them with `TextBackgrounds`.
 
 ## Styling
 

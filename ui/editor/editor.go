@@ -52,6 +52,7 @@ type options struct {
 	diffBase      *Buffer
 	onCompletion  func(CompletionRequest)
 	onHover       func(HoverRequest)
+	onLinked      func(LinkedEditingRequest)
 	onDefinition  func(int)
 	onGutterClick func(int)
 	contextMenu   func(m *ui.Menu)
@@ -263,6 +264,9 @@ type editor struct {
 	goTo     goToLine
 	complete completions
 	snippet  *snippetSession
+	linked   *linkedSession
+	// linkedAt is where OnLinkedEditing was last asked about.
+	linkedAt linkedAsk
 	hover    hover
 	popup    popup
 	diags    []Diagnostic
@@ -345,6 +349,7 @@ func (ed *editor) init(buf *Buffer, o options, t *ui.Theme) {
 		ed.nextID = 1
 		ed.blinkStart = ed.frameNow
 		ed.hover.asked, ed.hover.restOff = -1, -1
+		ed.linkedAt.offset = -1
 		ed.hoverLine = -1
 		// No text has come into view yet: -1, not the text's start.
 		ed.revealAt, ed.revealed = -1, -1
@@ -402,6 +407,9 @@ func (ed *editor) sync() {
 		if ed.snippet != nil && !ed.snippet.moved(cs) {
 			ed.snippet = nil
 		}
+		if ed.linked != nil && !ed.linked.moved(cs) {
+			ed.linked = nil
+		}
 		for i := range ed.sels {
 			ed.sels[i] = mapSel(ed.sels[i], cs)
 		}
@@ -454,6 +462,7 @@ func (ed *editor) sync() {
 		f.version = ed.view.version
 	}
 	ed.sels = mergeSels(ed.sels)
+	ed.keepLinked()
 }
 
 // mapSel moves a selection through changes: a caret with the text
@@ -480,6 +489,7 @@ func mapSel(s sel, cs []change) sel {
 // it of the old text.
 func (ed *editor) resetForBuffer() {
 	ed.snippet = nil
+	ed.linked, ed.linkedAt.offset = nil, -1
 	ed.sels = []sel{{goal: -1, id: ed.nextID}}
 	ed.nextID++
 	ed.selUndo, ed.selRedo = nil, nil
@@ -516,6 +526,7 @@ func (ed *editor) setSels(sels []sel, reveal reveal) {
 		ed.selRedo = nil
 	}
 	ed.sels = mergeSels(sels)
+	ed.keepLinked()
 	if reveal != revealNone {
 		ed.reveal = max(ed.reveal, reveal)
 	}

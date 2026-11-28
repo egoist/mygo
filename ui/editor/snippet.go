@@ -201,7 +201,9 @@ func (ed *editor) insertSnippet(s *Snippet, edits []Edit) bool {
 	for i, target := range targets {
 		edits[i] = Edit{Start: target.start(), End: target.end(), Text: s.text}
 	}
-	ed.snippet = nil
+	// A snippet ends linked editing, whose copies would be a second
+	// version of the insertion's.
+	ed.snippet, ed.linked = nil, nil
 	ed.endGroup()
 	version := ed.view.version
 	session := &snippetSession{stops: s.stops}

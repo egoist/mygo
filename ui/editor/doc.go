@@ -3,8 +3,8 @@
 //
 // View shows a code editor of a Buffer, as Zed's: syntax highlighting,
 // several carets and selections, soft wraps, folding, finding and
-// replacing, completions with editable snippets, hovers, diagnostics and
-// inlay hints from the
+// replacing, completions with editable snippets, hovers, diagnostics,
+// inlay hints and linked editing from the
 // app or a language server, ranges shown as something else
 // (SetReplacements), elements between lines (SetBlocks), and the commands
 // and key bindings of code editors:

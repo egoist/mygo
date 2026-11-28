@@ -115,6 +115,7 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 			ed.doReveal()
 		}
 	}
+	ed.askLinked()
 	// Hovering: ask what the text under the resting pointer is. The
 	// editor hears no move once the pointer has left it, so its hover
 	// tells: what the pointer passed over on its way out asks nothing, and

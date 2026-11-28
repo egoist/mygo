@@ -110,6 +110,11 @@ type State struct {
 	// OnHover asks the app what to show for the text under the pointer
 	// once it rests there: answer with ShowHover.
 	OnHover func(HoverRequest)
+	// OnLinkedEditing asks the app which ranges are edited together with
+	// the text at the caret, as the only caret moves or the text changes
+	// while the editor has the keyboard and no linked editing runs: answer
+	// with SetLinkedEditingRanges, at once or later. Nil asks nothing.
+	OnLinkedEditing func(LinkedEditingRequest)
 	// HoverDelay is how long the pointer rests on the text before the
 	// hover is asked for: a tooltip's, 600 ms, when zero or less.
 	HoverDelay time.Duration
@@ -264,7 +269,7 @@ func (st *State) options() options {
 		keepScrollbars: st.KeepScrollbars, hideScrollbars: st.NoScrollbars, scrollbar: st.Scrollbar,
 		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, cursorShape: st.CursorShape, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
-		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
+		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onLinked: st.OnLinkedEditing, onDefinition: st.OnDefinition,
 		hoverDelay: st.HoverDelay, noPointerHover: st.NoPointerHover,
 		noDefinitionClick: st.NoDefinitionClick, noDefinitionLink: st.NoDefinitionLink,
 		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,

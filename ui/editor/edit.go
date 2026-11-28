@@ -27,6 +27,10 @@ func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind edi
 		return false
 	}
 	before := slices.Clone(ed.sels)
+	ref, words := ed.linkedRef(), ""
+	if ref >= 0 {
+		words = ed.wordChars() // before b.mu, which Language takes
+	}
 	b.mu.Lock()
 	if b.version != ed.view.version {
 		// The buffer changed since this editor last looked, as another
@@ -46,6 +50,9 @@ func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind edi
 	}
 	changes := b.editEnds(edits, codes, kind, ed, before)
 	made, madeText := b.version, b.text
+	if changes != nil && ref >= 0 && ed.snippet == nil {
+		ed.mirrorLinked(b, ref, words, changes)
+	}
 	b.mu.Unlock()
 	if changes == nil {
 		// The edits change nothing, as pasting the text selected over
@@ -76,6 +83,7 @@ func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind edi
 		// made after it before the editor followed.
 		ed.sels = mergeSels(followSels(b, sels, made, madeText, ed.view.version, ed.view.text))
 	}
+	ed.keepLinked()
 	b.setSelectionsAfter(ed, slices.Clone(ed.sels))
 	ed.reveal = max(ed.reveal, revealFit)
 	ed.blinkAgain = true
